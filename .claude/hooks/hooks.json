@@ -6,8 +6,8 @@
         "tool": "Write|Edit|MultiEdit",
         "conditions": []
       },
-      "command": "bash -c 'if [[ \"$CLAUDE_CWD\" != *\"/.worktrees/\"* ]] && [[ \"$TOOL_INPUT_PATH\" != *\".claude/\"* ]] && [[ \"$TOOL_INPUT_PATH\" != *\"specs/\"* ]]; then echo \"ERROR: Direct writes to main branch not allowed. Use worktrees.\" >&2; exit 1; fi'",
-      "description": "Prevent writes outside worktrees (except .claude/ and specs/)"
+      "command": "bash .claude/hooks/scripts/check-worktree.sh",
+      "description": "Ensure writes only happen in worktrees, not main branch"
     },
     {
       "event": "PostToolUse",
@@ -15,8 +15,14 @@
         "tool": "Write|Edit|MultiEdit",
         "conditions": []
       },
-      "command": "bash -c 'if [[ \"$TOOL_INPUT_PATH\" == *.py ]]; then ruff check --fix \"$TOOL_INPUT_PATH\" 2>/dev/null || true; fi'",
-      "description": "Auto-lint Python files after changes"
+      "command": "bash .claude/hooks/scripts/lint-changes.sh",
+      "description": "Auto-lint after file changes"
+    },
+    {
+      "event": "PreCommit",
+      "matcher": {},
+      "command": "bash .claude/hooks/scripts/run-tests.sh",
+      "description": "Run tests before any commit"
     }
   ]
 }
