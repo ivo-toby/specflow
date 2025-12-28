@@ -27,11 +27,11 @@ class SpecsPanel(VerticalScroll):
     def refresh_specs(self) -> None:
         """Refresh the specs list from database."""
         table = self.query_one("#specs-table", DataTable)
-        table.clear()
 
         # Get project from app
         app = self.app
         if not hasattr(app, "project") or app.project is None:
+            table.clear()
             table.add_row("—", "—", "No project loaded", "—")
             return
 
@@ -39,9 +39,12 @@ class SpecsPanel(VerticalScroll):
         specs = app.project.db.list_specs()
 
         if not specs:
+            table.clear()
             table.add_row("—", "—", "No specifications", "—")
             return
 
+        # Build new data
+        new_data = []
         for spec in specs:
             status_icon = self._get_status_icon(spec.status)
 
@@ -51,12 +54,22 @@ class SpecsPanel(VerticalScroll):
             total = len(tasks)
             tasks_str = f"{completed}/{total}" if total > 0 else "—"
 
-            table.add_row(
-                status_icon,
-                spec.id,
-                spec.title,
-                tasks_str,
-            )
+            new_data.append((status_icon, spec.id, spec.title, tasks_str))
+
+        # Check if data changed - avoid unnecessary clear/rebuild
+        current_rows = list(table.rows.values())
+        data_changed = len(current_rows) != len(new_data)
+        if not data_changed:
+            for i, row_data in enumerate(new_data):
+                if i < len(current_rows) and tuple(current_rows[i]) != row_data:
+                    data_changed = True
+                    break
+
+        # Only rebuild if data changed
+        if data_changed:
+            table.clear()
+            for row_data in new_data:
+                table.add_row(*row_data)
 
     def _get_status_icon(self, status: SpecStatus) -> str:
         """Get icon for spec status."""

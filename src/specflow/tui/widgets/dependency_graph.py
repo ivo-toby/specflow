@@ -60,13 +60,11 @@ class DependencyGraph(VerticalScroll):
         """Load dependency graph for a specification."""
         self.spec_id = spec_id
 
-        # Clear existing widgets
-        for widget in self.query(Static):
-            widget.remove()
-
         # Get project from app
         app = self.app
         if not hasattr(app, "project") or app.project is None:
+            # Clear and show error - batch the operation
+            self.remove_children()
             self.mount(Static("No project loaded"))
             return
 
@@ -74,6 +72,8 @@ class DependencyGraph(VerticalScroll):
         tasks = app.project.db.list_tasks(spec_id=spec_id)
 
         if not tasks:
+            # Clear and show message - batch the operation
+            self.remove_children()
             self.mount(Static("No tasks defined"))
             return
 
@@ -87,18 +87,25 @@ class DependencyGraph(VerticalScroll):
                     dependents_map[dep_id] = []
                 dependents_map[dep_id].append(task.id)
 
-        # Render graph using topological levels
+        # Build all widgets first
+        widgets_to_mount = []
         rendered = set()
-        self._render_graph_level(task_map, dependents_map, rendered)
+        self._build_graph_widgets(task_map, dependents_map, rendered, widgets_to_mount)
 
-    def _render_graph_level(
+        # Clear existing and mount all at once - batch operation
+        self.remove_children()
+        if widgets_to_mount:
+            self.mount_all(widgets_to_mount)
+
+    def _build_graph_widgets(
         self,
         task_map: dict,
         dependents_map: dict,
         rendered: set,
+        widgets: list,
         level: int = 0,
     ) -> None:
-        """Render tasks at a given dependency level."""
+        """Build widgets for tasks at a given dependency level."""
         # Find tasks with no unrendered dependencies
         ready_tasks = []
         for task_id, task in task_map.items():
@@ -111,7 +118,7 @@ class DependencyGraph(VerticalScroll):
         if not ready_tasks:
             return
 
-        # Render tasks at this level
+        # Build widgets for tasks at this level
         for task in ready_tasks:
             indent = "  " * level
             status_icon = self._get_status_icon(task.status.value)
@@ -119,17 +126,17 @@ class DependencyGraph(VerticalScroll):
 
             node_text = f"{indent}{status_icon} {task.id}: {task.title}"
             node = Static(node_text, classes=f"graph-node {status_class}")
-            self.mount(node)
+            widgets.append(node)
 
             # Show dependencies
             if task.dependencies:
                 deps_text = f"{indent}  ↳ depends on: {', '.join(task.dependencies)}"
-                self.mount(Static(deps_text, classes="graph-dependency"))
+                widgets.append(Static(deps_text, classes="graph-dependency"))
 
             rendered.add(task.id)
 
         # Recurse to next level
-        self._render_graph_level(task_map, dependents_map, rendered, level + 1)
+        self._build_graph_widgets(task_map, dependents_map, rendered, widgets, level + 1)
 
     def _get_status_icon(self, status: str) -> str:
         """Get icon for task status."""

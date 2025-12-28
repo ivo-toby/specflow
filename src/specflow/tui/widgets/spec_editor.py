@@ -144,10 +144,13 @@ class SpecEditor(Container):
             tab = self.query_one(f"#{tab_id}", TabPane)
             # Find the VerticalScroll container inside the tab
             scroll = tab.query_one(VerticalScroll)
-            # Remove existing markdown widget
-            for widget in scroll.query(Markdown):
-                widget.remove()
-            # Add new markdown widget to the scroll container
-            scroll.mount(Markdown(content))
+            # Try to update existing Markdown widget instead of removing/mounting
+            markdown_widgets = list(scroll.query(Markdown))
+            if markdown_widgets:
+                # Reuse existing widget - just update content
+                markdown_widgets[0].update(content)
+            else:
+                # No existing widget, mount new one
+                scroll.mount(Markdown(content))
         except Exception:
             pass  # Tab not found or other error
