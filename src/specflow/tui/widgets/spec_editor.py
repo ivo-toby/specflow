@@ -82,49 +82,19 @@ class SpecEditor(Container):
                     id="editor-research"
                 )
 
-            with TabPane("Questions", id="tab-questions"):
+            # This tab will be dynamically labeled as Questions or Answers
+            with TabPane("Q/A", id="tab-answers"):
                 yield TextArea(
-                    "No questions.md available",
+                    "No questions or answers available",
                     language="markdown",
                     theme="monokai",
-                    id="editor-questions"
+                    id="editor-answers"
                 )
-
-            with TabPane("Constitution", id="tab-constitution"):
-                yield TextArea(
-                    "# Project Constitution\n\nNo constitution file found.",
-                    language="markdown",
-                    theme="monokai",
-                    id="editor-constitution"
-                )
-
-    def on_mount(self) -> None:
-        """Load constitution on mount."""
-        self._load_constitution()
-
-    def _load_constitution(self) -> None:
-        """Load the project constitution."""
-        try:
-            app = self.app
-            if not hasattr(app, "project") or app.project is None:
-                return
-
-            constitution_file = app.project.root / ".specflow" / "constitution.md"
-            if constitution_file.exists():
-                content = constitution_file.read_text()
-                self._update_tab("tab-constitution", content)
-                self.loaded_tabs.add("tab-constitution")
-        except Exception:
-            pass
 
     def load_spec(self, spec_id: str) -> None:
         """Load a specification into the editor."""
         self.current_spec_id = spec_id
-        # Don't clear all loaded tabs - keep constitution loaded
-        constitution_loaded = "tab-constitution" in self.loaded_tabs
         self.loaded_tabs.clear()
-        if constitution_loaded:
-            self.loaded_tabs.add("tab-constitution")
 
         # Get project from app
         app = self.app
@@ -189,7 +159,7 @@ class SpecEditor(Container):
             "tab-plan": "plan",
             "tab-tasks": "tasks",
             "tab-research": "research",
-            "tab-questions": "questions"
+            "tab-answers": "Q/A"
         }
         tab_name = tab_names.get(tab_id, "content")
 
@@ -214,8 +184,35 @@ class SpecEditor(Container):
             self._load_file_to_tab(self.spec_dir / "tasks.md", tab_id)
         elif tab_id == "tab-research":
             self._load_file_to_tab(self.spec_dir / "research.md", tab_id)
-        elif tab_id == "tab-questions":
-            self._load_file_to_tab(self.spec_dir / "questions.md", tab_id)
+        elif tab_id == "tab-answers":
+            # Check for answers.md first, then questions.md
+            answers_file = self.spec_dir / "answers.md"
+            questions_file = self.spec_dir / "questions.md"
+
+            if answers_file.exists():
+                # Update tab label
+                try:
+                    tabbed = self.query_one(TabbedContent)
+                    for tab in tabbed.query(TabPane):
+                        if tab.id == "tab-answers":
+                            tab.label = "Answers"
+                            break
+                except Exception:
+                    pass
+                self._load_file_to_tab(answers_file, tab_id)
+            elif questions_file.exists():
+                # Update tab label
+                try:
+                    tabbed = self.query_one(TabbedContent)
+                    for tab in tabbed.query(TabPane):
+                        if tab.id == "tab-answers":
+                            tab.label = "Questions"
+                            break
+                except Exception:
+                    pass
+                self._load_file_to_tab(questions_file, tab_id)
+            else:
+                self._update_tab(tab_id, "No questions or answers available")
 
         self.loaded_tabs.add(tab_id)
         self._loading_tab = None
@@ -286,8 +283,7 @@ class SpecEditor(Container):
                 "tab-plan": "editor-plan",
                 "tab-tasks": "editor-tasks",
                 "tab-research": "editor-research",
-                "tab-questions": "editor-questions",
-                "tab-constitution": "editor-constitution",
+                "tab-answers": "editor-answers",
             }
             editor_id = editor_ids.get(tab_id)
             if not editor_id:
@@ -314,13 +310,15 @@ class SpecEditor(Container):
             "editor-plan": "tab-plan",
             "editor-tasks": "tab-tasks",
             "editor-research": "tab-research",
-            "editor-questions": "tab-questions",
-            "editor-constitution": "tab-constitution",
+            "editor-answers": "tab-answers",
         }
 
-        tab_id = tab_map.get(event.text_area.id)
+        # Get the TextArea that triggered the event
+        editor_id = event.text_area.id if hasattr(event.text_area, 'id') else None
+        tab_id = tab_map.get(editor_id) if editor_id else None
+
         if not tab_id:
-            return  # Overview is read-only
+            return  # Overview/constitution or unknown
 
         # Check if content differs from original
         current_content = event.text_area.text
@@ -329,21 +327,31 @@ class SpecEditor(Container):
         if current_content != original_content:
             self.unsaved_tabs.add(tab_id)
             # Update app subtitle to show unsaved indicator
-            try:
-                if hasattr(self.app, 'sub_title') and not self.app.sub_title.endswith(" *"):
-                    self.app.sub_title = f"{self.app.sub_title} *"
-            except Exception:
-                pass
+            self.call_later(self._update_unsaved_indicator)
         else:
             if tab_id in self.unsaved_tabs:
                 self.unsaved_tabs.remove(tab_id)
                 # Clear unsaved indicator if no tabs have changes
                 if not self.unsaved_tabs:
-                    try:
-                        if hasattr(self.app, 'sub_title') and self.app.sub_title.endswith(" *"):
-                            self.app.sub_title = self.app.sub_title[:-2]
-                    except Exception:
-                        pass
+                    self.call_later(self._clear_unsaved_indicator)
+
+    def _update_unsaved_indicator(self) -> None:
+        """Update subtitle with unsaved indicator."""
+        try:
+            if hasattr(self.app, 'sub_title'):
+                if not self.app.sub_title.endswith(" *"):
+                    self.app.sub_title = f"{self.app.sub_title} *"
+        except Exception:
+            pass
+
+    def _clear_unsaved_indicator(self) -> None:
+        """Clear unsaved indicator from subtitle."""
+        try:
+            if hasattr(self.app, 'sub_title'):
+                if self.app.sub_title.endswith(" *"):
+                    self.app.sub_title = self.app.sub_title[:-2]
+        except Exception:
+            pass
 
     def save_current_tab(self) -> bool:
         """Save the currently active tab content to disk."""
@@ -365,9 +373,24 @@ class SpecEditor(Container):
                 "tab-plan": "plan.md",
                 "tab-tasks": "tasks.md",
                 "tab-research": "research.md",
-                "tab-questions": "questions.md",
             }
-            filename = file_map.get(active_tab)
+
+            # Handle Q/A tab specially - determine which file to save to
+            if active_tab == "tab-answers":
+                # Check which file exists to determine where to save
+                answers_file = self.spec_dir / "answers.md"
+                questions_file = self.spec_dir / "questions.md"
+
+                if answers_file.exists():
+                    filename = "answers.md"
+                elif questions_file.exists():
+                    filename = "questions.md"
+                else:
+                    # Default to questions.md if neither exists
+                    filename = "questions.md"
+            else:
+                filename = file_map.get(active_tab)
+
             if not filename or not self.spec_dir:
                 return False
 
@@ -377,7 +400,7 @@ class SpecEditor(Container):
                 "tab-plan": "editor-plan",
                 "tab-tasks": "editor-tasks",
                 "tab-research": "editor-research",
-                "tab-questions": "editor-questions",
+                "tab-answers": "editor-answers",
             }
             editor_id = editor_ids.get(active_tab)
             if not editor_id:
