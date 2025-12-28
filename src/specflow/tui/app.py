@@ -78,6 +78,7 @@ class SpecFlowApp(App):
         Binding("e", "focus_editor", "Editor"),
         Binding("g", "focus_graph", "Graph"),
         Binding("r", "refresh", "Refresh"),
+        Binding("ctrl+s", "save_spec", "Save"),
         Binding("ctrl+n", "new_spec", "New Spec"),
         Binding("?", "help", "Help"),
     ]
@@ -183,6 +184,14 @@ class SpecFlowApp(App):
         """Create a new specification."""
         # TODO: Implement new spec dialog
         pass
+
+    def action_save_spec(self) -> None:
+        """Save the current spec editor tab."""
+        try:
+            editor = self.query_one("#spec-editor", SpecEditor)
+            editor.save_current_tab()
+        except Exception:
+            pass
 
     def action_help(self) -> None:
         """Show help screen."""

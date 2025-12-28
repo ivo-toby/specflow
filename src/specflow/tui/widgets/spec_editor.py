@@ -4,7 +4,7 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
-from textual.widgets import Label, Markdown, TabbedContent, TabPane
+from textual.widgets import Label, TabbedContent, TabPane, TextArea
 
 
 class SpecEditor(Container):
@@ -23,9 +23,8 @@ class SpecEditor(Container):
         padding: 0;
     }
 
-    SpecEditor VerticalScroll {
+    SpecEditor TextArea {
         height: 100%;
-        padding: 1;
     }
     """
 
@@ -42,24 +41,44 @@ class SpecEditor(Container):
         """Compose the spec editor."""
         with TabbedContent(initial="tab-overview"):
             with TabPane("Overview", id="tab-overview"):
-                with VerticalScroll():
-                    yield Markdown("# No specification selected\n\nSelect a spec from the left panel.")
+                yield TextArea(
+                    "# No specification selected\n\nSelect a spec from the left panel.",
+                    language="markdown",
+                    theme="monokai",
+                    id="editor-overview"
+                )
 
             with TabPane("Spec", id="tab-spec"):
-                with VerticalScroll():
-                    yield Markdown("No spec.md available")
+                yield TextArea(
+                    "No spec.md available",
+                    language="markdown",
+                    theme="monokai",
+                    id="editor-spec"
+                )
 
             with TabPane("Plan", id="tab-plan"):
-                with VerticalScroll():
-                    yield Markdown("No plan.md available")
+                yield TextArea(
+                    "No plan.md available",
+                    language="markdown",
+                    theme="monokai",
+                    id="editor-plan"
+                )
 
             with TabPane("Tasks", id="tab-tasks"):
-                with VerticalScroll():
-                    yield Markdown("No tasks.md available")
+                yield TextArea(
+                    "No tasks.md available",
+                    language="markdown",
+                    theme="monokai",
+                    id="editor-tasks"
+                )
 
             with TabPane("Research", id="tab-research"):
-                with VerticalScroll():
-                    yield Markdown("No research.md available")
+                yield TextArea(
+                    "No research.md available",
+                    language="markdown",
+                    theme="monokai",
+                    id="editor-research"
+                )
 
     def load_spec(self, spec_id: str) -> None:
         """Load a specification into the editor."""
@@ -216,16 +235,70 @@ class SpecEditor(Container):
     def _update_tab(self, tab_id: str, content: str) -> None:
         """Update tab content."""
         try:
-            tab = self.query_one(f"#{tab_id}", TabPane)
-            # Find the VerticalScroll container inside the tab
-            scroll = tab.query_one(VerticalScroll)
-            # Try to update existing Markdown widget instead of removing/mounting
-            markdown_widgets = list(scroll.query(Markdown))
-            if markdown_widgets:
-                # Reuse existing widget - just update content
-                markdown_widgets[0].update(content)
-            else:
-                # No existing widget, mount new one
-                scroll.mount(Markdown(content))
+            # Map tab IDs to editor IDs
+            editor_ids = {
+                "tab-overview": "editor-overview",
+                "tab-spec": "editor-spec",
+                "tab-plan": "editor-plan",
+                "tab-tasks": "editor-tasks",
+                "tab-research": "editor-research",
+            }
+            editor_id = editor_ids.get(tab_id)
+            if not editor_id:
+                return
+
+            # Update TextArea content - instant, no rendering needed
+            editor = self.query_one(f"#{editor_id}", TextArea)
+            editor.load_text(content)
         except Exception:
             pass  # Tab not found or other error
+
+    def save_current_tab(self) -> bool:
+        """Save the currently active tab content to disk."""
+        try:
+            tabbed = self.query_one(TabbedContent)
+            active_tab = tabbed.active
+
+            # Skip overview - it's generated, not editable
+            if active_tab == "tab-overview":
+                return False
+
+            # Map tab to file
+            file_map = {
+                "tab-spec": "spec.md",
+                "tab-plan": "plan.md",
+                "tab-tasks": "tasks.md",
+                "tab-research": "research.md",
+            }
+            filename = file_map.get(active_tab)
+            if not filename or not self.spec_dir:
+                return False
+
+            # Get editor content
+            editor_ids = {
+                "tab-spec": "editor-spec",
+                "tab-plan": "editor-plan",
+                "tab-tasks": "editor-tasks",
+                "tab-research": "editor-research",
+            }
+            editor_id = editor_ids.get(active_tab)
+            if not editor_id:
+                return False
+
+            editor = self.query_one(f"#{editor_id}", TextArea)
+            content = editor.text
+
+            # Save to file
+            file_path = self.spec_dir / filename
+            file_path.write_text(content)
+
+            # Update app subtitle to show saved
+            if hasattr(self.app, 'sub_title'):
+                original = self.app.sub_title
+                self.app.sub_title = f"Saved {filename}"
+                # Restore after 2 seconds
+                self.set_timer(2.0, lambda: setattr(self.app, 'sub_title', original))
+
+            return True
+        except Exception:
+            return False
