@@ -104,11 +104,47 @@ class SpecEditor(Container):
             return
         self._loading_tab = tab_id
 
+        # Show loading indicator immediately
+        self._show_loading_indicator(tab_id)
+
         # Load asynchronously to avoid blocking UI
         self.call_later(self._load_tab_async, tab_id)
 
+    def _show_loading_indicator(self, tab_id: str) -> None:
+        """Show loading indicator in tab."""
+        loading_messages = {
+            "tab-spec": "# Loading specification...\n\nPlease wait while the content loads.",
+            "tab-plan": "# Loading implementation plan...\n\nPlease wait while the content loads.",
+            "tab-tasks": "# Loading tasks...\n\nPlease wait while the content loads.",
+            "tab-research": "# Loading research notes...\n\nPlease wait while the content loads.",
+        }
+        message = loading_messages.get(tab_id, "# Loading...\n\nPlease wait.")
+        self._update_tab(tab_id, message)
+
     def _load_tab_async(self, tab_id: str) -> None:
         """Load tab content asynchronously."""
+        # Update app status
+        tab_names = {
+            "tab-spec": "specification",
+            "tab-plan": "plan",
+            "tab-tasks": "tasks",
+            "tab-research": "research"
+        }
+        tab_name = tab_names.get(tab_id, "content")
+
+        try:
+            if hasattr(self.app, 'sub_title'):
+                original_subtitle = self.app.sub_title
+        except Exception:
+            original_subtitle = None
+
+        try:
+            if hasattr(self.app, 'sub_title'):
+                self.app.sub_title = f"Loading {tab_name}..."
+        except Exception:
+            pass
+
+        # Load the content
         if tab_id == "tab-spec":
             self._load_file_to_tab(self.spec_dir / "spec.md", tab_id)
         elif tab_id == "tab-plan":
@@ -120,6 +156,13 @@ class SpecEditor(Container):
 
         self.loaded_tabs.add(tab_id)
         self._loading_tab = None
+
+        # Restore subtitle
+        try:
+            if hasattr(self.app, 'sub_title') and original_subtitle:
+                self.app.sub_title = original_subtitle
+        except Exception:
+            pass
 
     def _generate_overview(self, spec, spec_dir: Path) -> str:
         """Generate overview markdown."""
