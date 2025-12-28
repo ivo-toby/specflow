@@ -71,6 +71,21 @@ class DependencyGraph(VerticalScroll):
         # Load tasks
         tasks = app.project.db.list_tasks(spec_id=spec_id)
 
+        # If no tasks in database, try importing from tasks.md
+        if not tasks:
+            imported = app.project.import_tasks_from_md(spec_id)
+            if imported > 0:
+                # Reload tasks after import
+                tasks = app.project.db.list_tasks(spec_id=spec_id)
+                # Update app subtitle to show import happened
+                try:
+                    if hasattr(app, 'sub_title'):
+                        original = app.sub_title
+                        app.sub_title = f"Imported {imported} tasks from tasks.md"
+                        app.set_timer(3.0, lambda: setattr(app, 'sub_title', original))
+                except Exception:
+                    pass
+
         if not tasks:
             # Clear and show message - batch the operation
             self.remove_children()

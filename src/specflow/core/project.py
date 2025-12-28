@@ -1,10 +1,12 @@
 """Project management for SpecFlow."""
 
+import re
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 from specflow.core.config import Config
-from specflow.core.database import Database
+from specflow.core.database import Database, Task, TaskStatus
 from specflow.core.sync import JsonlSync
 
 
@@ -152,6 +154,70 @@ class Project:
         (spec_dir / "implementation").mkdir(exist_ok=True)
         (spec_dir / "qa").mkdir(exist_ok=True)
         return spec_dir
+
+    def import_tasks_from_md(self, spec_id: str) -> int:
+        """Import tasks from tasks.md into the database."""
+        tasks_file = self.spec_dir(spec_id) / "tasks.md"
+        if not tasks_file.exists():
+            return 0
+
+        content = tasks_file.read_text()
+
+        # Parse tasks from markdown
+        # Format: ### Task: TASK-XXX\n- **Title**: ...\n- **Description**: ...\n- **Priority**: ...\n- **Dependencies**: [...]
+        task_pattern = r'###\s+Task:\s+([A-Z]+-\d+)(.*?)(?=###\s+Task:|$)'
+        matches = re.findall(task_pattern, content, re.DOTALL)
+
+        imported = 0
+        for task_id, task_block in matches:
+            task_id = task_id.strip()
+
+            # Extract fields
+            title_match = re.search(r'\*\*Title\*\*:\s*(.+?)(?:\n|$)', task_block)
+            desc_match = re.search(r'\*\*Description\*\*:\s*(.+?)(?:\n|$)', task_block)
+            priority_match = re.search(r'\*\*Priority\*\*:\s*(\d+)', task_block)
+            deps_match = re.search(r'\*\*Dependencies\*\*:\s*\[(.*?)\]', task_block)
+            assignee_match = re.search(r'\*\*Assignee\*\*:\s*(\w+)', task_block)
+
+            title = title_match.group(1).strip() if title_match else task_id
+            description = desc_match.group(1).strip() if desc_match else ""
+            priority = int(priority_match.group(1)) if priority_match else 5
+
+            # Parse dependencies
+            dependencies = []
+            if deps_match:
+                deps_str = deps_match.group(1).strip()
+                if deps_str:
+                    dependencies = [d.strip() for d in deps_str.split(',') if d.strip()]
+
+            assignee = assignee_match.group(1) if assignee_match else None
+
+            # Check if task already exists
+            existing = self.db.get_task(task_id)
+            if existing:
+                continue  # Skip existing tasks
+
+            # Create task
+            task = Task(
+                id=task_id,
+                spec_id=spec_id,
+                title=title,
+                description=description,
+                status=TaskStatus.PENDING,
+                priority=priority,
+                dependencies=dependencies,
+                assignee=assignee,
+                worktree=None,
+                iteration=1,
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+                metadata={}
+            )
+
+            self.db.create_task(task)
+            imported += 1
+
+        return imported
 
 
 _CONSTITUTION_TEMPLATE = """# Project Constitution
