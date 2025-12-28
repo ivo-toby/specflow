@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.containers import Container
+from textual.containers import Container, VerticalScroll
 from textual.widgets import Label, Markdown, TabbedContent, TabPane
 
 
@@ -20,6 +20,11 @@ class SpecEditor(Container):
     }
 
     SpecEditor TabPane {
+        padding: 0;
+    }
+
+    SpecEditor VerticalScroll {
+        height: 100%;
         padding: 1;
     }
     """
@@ -33,19 +38,24 @@ class SpecEditor(Container):
         """Compose the spec editor."""
         with TabbedContent(initial="tab-overview"):
             with TabPane("Overview", id="tab-overview"):
-                yield Markdown("# No specification selected\n\nSelect a spec from the left panel.")
+                with VerticalScroll():
+                    yield Markdown("# No specification selected\n\nSelect a spec from the left panel.")
 
             with TabPane("Spec", id="tab-spec"):
-                yield Markdown("No spec.md available")
+                with VerticalScroll():
+                    yield Markdown("No spec.md available")
 
             with TabPane("Plan", id="tab-plan"):
-                yield Markdown("No plan.md available")
+                with VerticalScroll():
+                    yield Markdown("No plan.md available")
 
             with TabPane("Tasks", id="tab-tasks"):
-                yield Markdown("No tasks.md available")
+                with VerticalScroll():
+                    yield Markdown("No tasks.md available")
 
             with TabPane("Research", id="tab-research"):
-                yield Markdown("No research.md available")
+                with VerticalScroll():
+                    yield Markdown("No research.md available")
 
     def load_spec(self, spec_id: str) -> None:
         """Load a specification into the editor."""
@@ -132,10 +142,12 @@ class SpecEditor(Container):
         """Update tab content."""
         try:
             tab = self.query_one(f"#{tab_id}", TabPane)
+            # Find the VerticalScroll container inside the tab
+            scroll = tab.query_one(VerticalScroll)
             # Remove existing markdown widget
-            for widget in tab.query(Markdown):
+            for widget in scroll.query(Markdown):
                 widget.remove()
-            # Add new markdown widget
-            tab.mount(Markdown(content))
+            # Add new markdown widget to the scroll container
+            scroll.mount(Markdown(content))
         except Exception:
             pass  # Tab not found or other error
