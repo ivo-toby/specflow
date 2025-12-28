@@ -82,10 +82,41 @@ class SpecEditor(Container):
                     id="editor-research"
                 )
 
+            with TabPane("Constitution", id="tab-constitution"):
+                yield TextArea(
+                    "# Project Constitution\n\nNo constitution file found.",
+                    language="markdown",
+                    theme="monokai",
+                    id="editor-constitution"
+                )
+
+    def on_mount(self) -> None:
+        """Load constitution on mount."""
+        self._load_constitution()
+
+    def _load_constitution(self) -> None:
+        """Load the project constitution."""
+        try:
+            app = self.app
+            if not hasattr(app, "project") or app.project is None:
+                return
+
+            constitution_file = app.project.root / ".specflow" / "constitution.md"
+            if constitution_file.exists():
+                content = constitution_file.read_text()
+                self._update_tab("tab-constitution", content)
+                self.loaded_tabs.add("tab-constitution")
+        except Exception:
+            pass
+
     def load_spec(self, spec_id: str) -> None:
         """Load a specification into the editor."""
         self.current_spec_id = spec_id
+        # Don't clear all loaded tabs - keep constitution loaded
+        constitution_loaded = "tab-constitution" in self.loaded_tabs
         self.loaded_tabs.clear()
+        if constitution_loaded:
+            self.loaded_tabs.add("tab-constitution")
 
         # Get project from app
         app = self.app
@@ -244,6 +275,7 @@ class SpecEditor(Container):
                 "tab-plan": "editor-plan",
                 "tab-tasks": "editor-tasks",
                 "tab-research": "editor-research",
+                "tab-constitution": "editor-constitution",
             }
             editor_id = editor_ids.get(tab_id)
             if not editor_id:
@@ -270,6 +302,7 @@ class SpecEditor(Container):
             "editor-plan": "tab-plan",
             "editor-tasks": "tab-tasks",
             "editor-research": "tab-research",
+            "editor-constitution": "tab-constitution",
         }
 
         tab_id = tab_map.get(event.text_area.id)
@@ -308,6 +341,10 @@ class SpecEditor(Container):
             # Skip overview - it's generated, not editable
             if active_tab == "tab-overview":
                 return False
+
+            # Handle constitution separately (project-level)
+            if active_tab == "tab-constitution":
+                return self._save_constitution()
 
             # Map tab to file
             file_map = {
@@ -354,6 +391,41 @@ class SpecEditor(Container):
                 # Restore after 2 seconds
                 final_subtitle = subtitle if not self.unsaved_tabs else f"{subtitle}"
                 self.set_timer(2.0, lambda: setattr(self.app, 'sub_title', final_subtitle))
+
+            return True
+        except Exception:
+            return False
+
+    def _save_constitution(self) -> bool:
+        """Save the constitution file."""
+        try:
+            app = self.app
+            if not hasattr(app, "project") or app.project is None:
+                return False
+
+            editor = self.query_one("#editor-constitution", TextArea)
+            content = editor.text
+
+            # Save to file
+            constitution_file = app.project.root / ".specflow" / "constitution.md"
+            constitution_file.write_text(content)
+
+            # Update original content and clear unsaved flag
+            self._original_content["tab-constitution"] = content
+            if "tab-constitution" in self.unsaved_tabs:
+                self.unsaved_tabs.remove("tab-constitution")
+
+            # Update app subtitle to show saved
+            if hasattr(app, 'sub_title'):
+                # Remove asterisk if no unsaved tabs
+                subtitle = app.sub_title
+                if subtitle.endswith(" *") and not self.unsaved_tabs:
+                    subtitle = subtitle[:-2]
+
+                app.sub_title = "Saved constitution.md"
+                # Restore after 2 seconds
+                final_subtitle = subtitle if not self.unsaved_tabs else f"{subtitle}"
+                self.set_timer(2.0, lambda: setattr(app, 'sub_title', final_subtitle))
 
             return True
         except Exception:
