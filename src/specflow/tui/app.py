@@ -13,6 +13,7 @@ from specflow.tui.widgets.config_screen import ConfigScreen
 from specflow.tui.widgets.dependency_graph import DependencyGraph
 from specflow.tui.widgets.spec_editor import SpecEditor
 from specflow.tui.widgets.specs import SpecSelected, SpecsPanel
+from specflow.tui.widgets.swimlanes import SwimlaneScreen
 
 
 class SpecFlowApp(App):
@@ -78,6 +79,7 @@ class SpecFlowApp(App):
         Binding("a", "focus_agents", "Agents"),
         Binding("e", "focus_editor", "Editor"),
         Binding("g", "focus_graph", "Graph"),
+        Binding("t", "show_tasks", "Tasks"),
         Binding("r", "refresh", "Refresh"),
         Binding("ctrl+s", "save_spec", "Save"),
         Binding("ctrl+n", "new_spec", "New Spec"),
@@ -209,6 +211,20 @@ class SpecFlowApp(App):
     def action_show_config(self) -> None:
         """Show configuration screen."""
         self.push_screen(ConfigScreen())
+
+    def action_show_tasks(self) -> None:
+        """Show swimlane task board for the currently selected spec."""
+        try:
+            editor = self.query_one("#spec-editor", SpecEditor)
+            if editor.current_spec_id:
+                # Get spec title for display
+                spec = self.project.db.get_spec(editor.current_spec_id) if self.project else None
+                spec_title = spec.title if spec else ""
+                self.push_screen(SwimlaneScreen(editor.current_spec_id, spec_title))
+            else:
+                self.notify("Select a specification first", severity="warning")
+        except Exception as e:
+            self.notify(f"Error opening task board: {e}", severity="error")
 
     def on_spec_selected(self, message: SpecSelected) -> None:
         """Handle spec selection."""

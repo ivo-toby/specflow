@@ -197,18 +197,18 @@ class Project:
             if existing:
                 continue  # Skip existing tasks
 
-            # Create task
+            # Create task with new TODO status
             task = Task(
                 id=task_id,
                 spec_id=spec_id,
                 title=title,
                 description=description,
-                status=TaskStatus.PENDING,
+                status=TaskStatus.TODO,  # Use new workflow-aligned status
                 priority=priority,
                 dependencies=dependencies,
                 assignee=assignee,
                 worktree=None,
-                iteration=1,
+                iteration=0,
                 created_at=datetime.now(),
                 updated_at=datetime.now(),
                 metadata={}
@@ -218,6 +218,30 @@ class Project:
             imported += 1
 
         return imported
+
+    def migrate_legacy_tasks(self, spec_id: str) -> int:
+        """Migrate tasks from legacy tasks.md file to database.
+
+        Imports tasks from tasks.md, then renames the file to tasks.md.legacy
+        to prevent re-import. This is a one-time migration for existing projects.
+
+        Returns the number of tasks migrated.
+        """
+        tasks_file = self.spec_dir(spec_id) / "tasks.md"
+        legacy_file = self.spec_dir(spec_id) / "tasks.md.legacy"
+
+        # Skip if already migrated or no file exists
+        if not tasks_file.exists() or legacy_file.exists():
+            return 0
+
+        # Import tasks from the file
+        count = self.import_tasks_from_md(spec_id)
+
+        if count > 0:
+            # Rename to .legacy to prevent re-import
+            tasks_file.rename(legacy_file)
+
+        return count
 
     def scan_and_register_specs(self) -> int:
         """Scan specs directory and register any specs not in database."""

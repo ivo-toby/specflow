@@ -25,17 +25,27 @@ class SpecStatus(str, Enum):
 
 
 class TaskStatus(str, Enum):
-    """Status of a task."""
+    """Status of a task aligned with engineering workflow."""
 
-    PENDING = "pending"
-    READY = "ready"
-    IN_PROGRESS = "in_progress"
-    REVIEW = "review"
-    TESTING = "testing"
-    QA = "qa"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    BLOCKED = "blocked"
+    TODO = "todo"              # Not started, waiting or blocked
+    IMPLEMENTING = "implementing"  # Coder agent working on code
+    TESTING = "testing"        # Tester agent writing/running tests
+    REVIEWING = "reviewing"    # Reviewer agent reviewing code
+    DONE = "done"              # QA passed, ready for merge
+
+
+# Migration mapping from old status values to new
+_TASK_STATUS_MIGRATION = {
+    "pending": "todo",
+    "ready": "todo",
+    "in_progress": "implementing",
+    "review": "reviewing",
+    "testing": "testing",
+    "qa": "reviewing",
+    "completed": "done",
+    "failed": "todo",
+    "blocked": "todo",
+}
 
 
 @dataclass
@@ -218,6 +228,20 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 
 INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (1, datetime('now'));
+
+-- Add index for updated_at to support polling for changes
+CREATE INDEX IF NOT EXISTS idx_tasks_updated_at ON tasks(updated_at);
+"""
+
+MIGRATION_V2_SQL = """
+-- Migrate task statuses to new workflow-aligned values
+UPDATE tasks SET status = 'todo' WHERE status IN ('pending', 'ready', 'failed', 'blocked');
+UPDATE tasks SET status = 'implementing' WHERE status = 'in_progress';
+UPDATE tasks SET status = 'reviewing' WHERE status IN ('review', 'qa');
+UPDATE tasks SET status = 'done' WHERE status = 'completed';
+
+-- Update schema version
+INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (2, datetime('now'));
 """
 
 
@@ -240,9 +264,28 @@ class Database:
         return self._conn
 
     def init_schema(self) -> None:
-        """Initialize database schema."""
+        """Initialize database schema and run migrations."""
         self.conn.executescript(SCHEMA_SQL)
         self.conn.commit()
+        self._run_migrations()
+
+    def _get_schema_version(self) -> int:
+        """Get current schema version."""
+        try:
+            cursor = self.conn.execute("SELECT MAX(version) FROM schema_version")
+            row = cursor.fetchone()
+            return row[0] if row and row[0] else 1
+        except sqlite3.OperationalError:
+            return 1
+
+    def _run_migrations(self) -> None:
+        """Run pending database migrations."""
+        current_version = self._get_schema_version()
+
+        # Migration v2: Update task statuses to new workflow values
+        if current_version < 2:
+            self.conn.executescript(MIGRATION_V2_SQL)
+            self.conn.commit()
 
     def close(self) -> None:
         """Close database connection."""
@@ -394,18 +437,78 @@ class Database:
         return [self._row_to_task(row) for row in cursor.fetchall()]
 
     def get_ready_tasks(self, spec_id: str | None = None) -> list[Task]:
-        """Get tasks that are ready to be executed (dependencies met)."""
-        tasks = self.list_tasks(spec_id=spec_id, status=TaskStatus.PENDING)
-        completed_ids = {
-            t.id for t in self.list_tasks(spec_id=spec_id, status=TaskStatus.COMPLETED)
+        """Get tasks that are ready to be executed (dependencies met).
+
+        Returns TODO tasks whose dependencies are all in DONE status.
+        """
+        tasks = self.list_tasks(spec_id=spec_id, status=TaskStatus.TODO)
+        done_ids = {
+            t.id for t in self.list_tasks(spec_id=spec_id, status=TaskStatus.DONE)
         }
 
         ready = []
         for task in tasks:
-            if all(dep in completed_ids for dep in task.dependencies):
+            if all(dep in done_ids for dep in task.dependencies):
                 ready.append(task)
 
         return ready
+
+    def update_task_status(self, task_id: str, status: TaskStatus) -> Task:
+        """Update a task's status and return the updated task.
+
+        This is the primary method for agents to update task progress.
+        """
+        now = datetime.now()
+        with self.transaction() as cursor:
+            cursor.execute(
+                "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
+                (status.value, now.isoformat(), task_id),
+            )
+
+        task = self.get_task(task_id)
+        if task is None:
+            raise ValueError(f"Task {task_id} not found")
+        return task
+
+    def get_tasks_updated_since(
+        self, spec_id: str, since: datetime
+    ) -> list[Task]:
+        """Get tasks that have been modified after the given timestamp.
+
+        Used for polling/reactive updates in the TUI.
+        """
+        cursor = self.conn.execute(
+            """
+            SELECT * FROM tasks
+            WHERE spec_id = ? AND updated_at > ?
+            ORDER BY updated_at DESC
+            """,
+            (spec_id, since.isoformat()),
+        )
+        return [self._row_to_task(row) for row in cursor.fetchall()]
+
+    def get_tasks_by_status(self, spec_id: str) -> dict[TaskStatus, list[Task]]:
+        """Get all tasks for a spec grouped by status.
+
+        Useful for swimlane display.
+        """
+        tasks = self.list_tasks(spec_id=spec_id)
+        by_status: dict[TaskStatus, list[Task]] = {status: [] for status in TaskStatus}
+
+        for task in tasks:
+            by_status[task.status].append(task)
+
+        return by_status
+
+    def is_task_blocked(self, task: Task) -> bool:
+        """Check if a task is blocked by unfinished dependencies."""
+        if not task.dependencies:
+            return False
+
+        done_ids = {
+            t.id for t in self.list_tasks(spec_id=task.spec_id, status=TaskStatus.DONE)
+        }
+        return not all(dep in done_ids for dep in task.dependencies)
 
     def update_task(self, task: Task) -> None:
         """Update an existing task."""

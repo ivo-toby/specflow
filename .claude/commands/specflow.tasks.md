@@ -1,9 +1,9 @@
 ---
 name: specflow.tasks
-description: Decompose plan into executable tasks with dependencies
+description: Decompose plan into executable tasks with dependencies (database-driven)
 ---
 
-Break technical plan into atomic, executable tasks.
+Break technical plan into atomic, executable tasks stored directly in the database.
 
 ## Arguments
 
@@ -13,6 +13,11 @@ $ARGUMENTS - Spec ID to create tasks for
 
 - plan.md must exist
 - Spec status: planned
+
+## Database-First Approach
+
+Tasks are created DIRECTLY in the SQLite database - no tasks.md file is created.
+This enables real-time tracking in the TUI swimlane board.
 
 ## Execution Flow
 
@@ -28,55 +33,69 @@ $ARGUMENTS - Spec ID to create tasks for
 3. **Task Decomposition**
    - Break plan into atomic tasks
    - Identify dependencies between tasks
-   - Assign priorities
+   - Assign priorities (1=high, 2=medium, 3=low)
    - Mark parallelizable tasks
    - Estimate complexity
 
-4. **Create tasks.md**
-   - List all tasks with metadata:
-     - ID, title, description
-     - Priority (1-10)
-     - Dependencies (list of task IDs)
-     - Assignee type (coder/reviewer/tester)
-     - Complexity (low/medium/high)
-     - Parallelizable (yes/no)
-   - Dependency graph (Mermaid diagram)
+4. **Create Tasks in Database**
+   - Use the specflow Python API to create tasks:
 
-5. **Populate Database**
-   - Insert all tasks into SQLite
-   - Set initial status: pending
-   - Mark dependency relationships
+   ```python
+   from specflow.core.project import Project
+   from specflow.core.database import TaskStatus
+   from datetime import datetime
 
-6. **Update Spec Status**
-   - Set status to: ready
-   - Ready for implementation
+   project = Project.load()
+   db = project.db
 
-## Task Format
+   # Create each task
+   from specflow.core.database import Task
 
-Each task in tasks.md:
+   task = Task(
+       id="TASK-001",
+       spec_id="<spec-id>",
+       title="Setup database schema",
+       description="Create SQLite schema for user management",
+       status=TaskStatus.TODO,
+       priority=1,  # 1=high, 2=medium, 3=low
+       dependencies=[],  # List of task IDs this depends on
+       assignee="coder",  # coder, reviewer, tester, qa
+       worktree=None,
+       iteration=0,
+       created_at=datetime.now(),
+       updated_at=datetime.now(),
+       metadata={}
+   )
+   db.create_task(task)
+   ```
 
-```markdown
-## Task: task-001
-- **Title**: Setup database schema
-- **Description**: Create SQLite schema for user management
-- **Priority**: 10
-- **Dependencies**: []
-- **Complexity**: low
-- **Assignee**: coder
-- **Parallelizable**: no
-- **Acceptance Criteria**:
-  - Users table created
-  - Indexes defined
-  - Migration script exists
-```
+5. **Update Spec Status**
+   - Set status to: approved (ready for implementation)
+
+## Task Status Workflow
+
+Tasks use the following statuses (swimlane columns):
+- `todo` - Not started, waiting for dependencies
+- `implementing` - Coder agent working on code
+- `testing` - Tester agent writing/running tests
+- `reviewing` - Reviewer agent reviewing code
+- `done` - QA passed, ready for merge
 
 ## Output
 
-- Confirmation of tasks.md created
-- Total task count
+- Summary of tasks created in database
+- Total task count by priority
 - Ready task count (no dependencies)
-- Dependency graph visualization
+- Dependency relationships
 - Prompt to proceed with /specflow.implement
+- Note: View tasks in TUI with 't' key (swimlane board)
+
+## IMPORTANT
+
+- Do NOT create a tasks.md file
+- All tasks go directly to the database
+- The TUI swimlane board shows tasks in real-time
+- Use consistent task ID format: TASK-001, TASK-002, etc.
 
 ## AUTONOMOUS
 
