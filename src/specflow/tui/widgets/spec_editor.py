@@ -33,6 +33,10 @@ class SpecEditor(Container):
         """Initialize spec editor."""
         super().__init__(**kwargs)
         self.current_spec_id: str | None = None
+        self.spec_dir: Path | None = None
+        self.current_spec = None
+        self.loaded_tabs: set[str] = set()
+        self._loading_tab: str | None = None
 
     def compose(self) -> ComposeResult:
         """Compose the spec editor."""
@@ -60,6 +64,7 @@ class SpecEditor(Container):
     def load_spec(self, spec_id: str) -> None:
         """Load a specification into the editor."""
         self.current_spec_id = spec_id
+        self.loaded_tabs.clear()
 
         # Get project from app
         app = self.app
@@ -71,16 +76,50 @@ class SpecEditor(Container):
         if not spec:
             return
 
-        spec_dir = app.project.spec_dir(spec_id)
+        # Cache for lazy loading
+        self.current_spec = spec
+        self.spec_dir = app.project.spec_dir(spec_id)
 
-        # Load all tabs - the update optimization will make this efficient
-        overview_md = self._generate_overview(spec, spec_dir)
+        # Only load overview immediately - fast and responsive
+        overview_md = self._generate_overview(spec, self.spec_dir)
         self._update_tab("tab-overview", overview_md)
+        self.loaded_tabs.add("tab-overview")
 
-        self._load_file_to_tab(spec_dir / "spec.md", "tab-spec")
-        self._load_file_to_tab(spec_dir / "plan.md", "tab-plan")
-        self._load_file_to_tab(spec_dir / "tasks.md", "tab-tasks")
-        self._load_file_to_tab(spec_dir / "research.md", "tab-research")
+        # Watch for tab changes to lazy load
+        try:
+            tabbed = self.query_one(TabbedContent)
+            if not hasattr(self, "_watcher_installed"):
+                self.watch(tabbed, "active", self._on_active_tab_changed, init=False)
+                self._watcher_installed = True
+        except Exception:
+            pass
+
+    def _on_active_tab_changed(self, tab_id: str) -> None:
+        """Load tab content when user switches to it."""
+        if not tab_id or tab_id in self.loaded_tabs or not self.spec_dir:
+            return
+
+        # Prevent double-loading
+        if self._loading_tab == tab_id:
+            return
+        self._loading_tab = tab_id
+
+        # Load asynchronously to avoid blocking UI
+        self.call_later(self._load_tab_async, tab_id)
+
+    def _load_tab_async(self, tab_id: str) -> None:
+        """Load tab content asynchronously."""
+        if tab_id == "tab-spec":
+            self._load_file_to_tab(self.spec_dir / "spec.md", tab_id)
+        elif tab_id == "tab-plan":
+            self._load_file_to_tab(self.spec_dir / "plan.md", tab_id)
+        elif tab_id == "tab-tasks":
+            self._load_file_to_tab(self.spec_dir / "tasks.md", tab_id)
+        elif tab_id == "tab-research":
+            self._load_file_to_tab(self.spec_dir / "research.md", tab_id)
+
+        self.loaded_tabs.add(tab_id)
+        self._loading_tab = None
 
     def _generate_overview(self, spec, spec_dir: Path) -> str:
         """Generate overview markdown."""
