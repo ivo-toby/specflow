@@ -39,7 +39,7 @@ class SpecEditor(Container):
 
     def compose(self) -> ComposeResult:
         """Compose the spec editor."""
-        with TabbedContent(initial="tab-overview"):
+        with TabbedContent(initial="tab-overview", id="spec-tabs"):
             with TabPane("Overview", id="tab-overview"):
                 with VerticalScroll():
                     yield Markdown("# No specification selected\n\nSelect a spec from the left panel.")
@@ -59,6 +59,31 @@ class SpecEditor(Container):
             with TabPane("Research", id="tab-research"):
                 with VerticalScroll():
                     yield Markdown("No research.md available")
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        """Handle tab activation - load content on-demand."""
+        # Only handle events from our spec-tabs TabbedContent
+        if event.tabbed_content.id != "spec-tabs":
+            return
+
+        # Get the active tab ID from the TabbedContent widget
+        tab_id = event.tabbed_content.active
+
+        if not tab_id or tab_id in self.loaded_tabs or not self.current_spec_id or not self.spec_dir:
+            return
+
+        # Load content based on tab
+        if tab_id == "tab-spec":
+            self._load_file_to_tab(self.spec_dir / "spec.md", tab_id)
+        elif tab_id == "tab-plan":
+            self._load_file_to_tab(self.spec_dir / "plan.md", tab_id)
+        elif tab_id == "tab-tasks":
+            self._load_file_to_tab(self.spec_dir / "tasks.md", tab_id)
+        elif tab_id == "tab-research":
+            self._load_file_to_tab(self.spec_dir / "research.md", tab_id)
+
+        if tab_id in ["tab-spec", "tab-plan", "tab-tasks", "tab-research"]:
+            self.loaded_tabs.add(tab_id)
 
     def load_spec(self, spec_id: str) -> None:
         """Load a specification into the editor."""
@@ -86,10 +111,14 @@ class SpecEditor(Container):
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         """Load tab content on-demand when activated."""
-        tab_id = event.tab.id
+        # Get the actual tab pane ID, not the TabbedContent ID
+        if not event.tab or not hasattr(event.tab, 'id'):
+            return
+
+        tab_id = str(event.tab.id) if event.tab.id else None
 
         # Skip if already loaded or no spec loaded
-        if tab_id in self.loaded_tabs or not self.current_spec_id or not self.spec_dir:
+        if not tab_id or tab_id in self.loaded_tabs or not self.current_spec_id or not self.spec_dir:
             return
 
         # Load content based on tab
@@ -102,7 +131,8 @@ class SpecEditor(Container):
         elif tab_id == "tab-research":
             self._load_file_to_tab(self.spec_dir / "research.md", tab_id)
 
-        self.loaded_tabs.add(tab_id)
+        if tab_id in ["tab-spec", "tab-plan", "tab-tasks", "tab-research"]:
+            self.loaded_tabs.add(tab_id)
 
     def _generate_overview(self, spec, spec_dir: Path) -> str:
         """Generate overview markdown."""
