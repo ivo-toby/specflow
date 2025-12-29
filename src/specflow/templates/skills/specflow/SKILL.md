@@ -21,11 +21,56 @@ triggers:
 ## Project Context
 
 SpecFlow is a TUI-based spec-driven development orchestrator that enables:
-- BRD/PRD ingestion → human-validated specs → fully autonomous implementation
+- Idea → BRD → PRD → Spec → Tasks → Autonomous Implementation
 - Parallel agent execution (max 6 concurrent)
 - Git worktree isolation for all implementation work
-- Beads-style dependency tracking
-- Auto-Claude execution patterns
+- Real-time progress tracking in TUI
+- Database-driven task management
+
+## The Happy Path
+
+Complete workflow from idea to implementation:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        HUMAN INTERACTION                            │
+├─────────────────────────────────────────────────────────────────────┤
+│  /specflow.brd     Interactive BRD creation with research          │
+│        ↓                                                            │
+│  /specflow.prd     Interactive PRD creation (from BRD or scratch)  │
+│        ↓                                                            │
+│  /specflow.specify Generate technical spec [APPROVAL REQUIRED]     │
+├─────────────────────────────────────────────────────────────────────┤
+│                      FULLY AUTONOMOUS                               │
+├─────────────────────────────────────────────────────────────────────┤
+│  /specflow.plan    Create implementation plan                       │
+│        ↓                                                            │
+│  /specflow.tasks   Decompose into database tasks                    │
+│        ↓                                                            │
+│  /specflow.implement Execute with parallel agents                   │
+│        ↓                                                            │
+│  /specflow.qa      Final validation and merge                       │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## Commands Available
+
+### Discovery & Requirements (Human Interactive)
+- `/specflow.brd` - **NEW** Guide user through creating a Business Requirements Document
+- `/specflow.prd` - **NEW** Guide user through creating a Product Requirements Document
+- `/specflow.ingest` - Import existing BRD/PRD document
+
+### Specification (Human Approval Required)
+- `/specflow.specify` - Generate specification from requirements
+
+### Autonomous Execution
+- `/specflow.plan` - Create technical implementation plan
+- `/specflow.tasks` - Decompose plan into executable database tasks
+- `/specflow.implement` - Execute autonomous implementation
+- `/specflow.qa` - Run final QA validation
+
+### Project Setup
+- `/specflow.init` - Initialize SpecFlow project
 
 ## Key Principles
 
@@ -46,10 +91,10 @@ project-root/
 │   ├── specs.jsonl                  # Git-friendly sync
 │   └── memory/                      # Cross-session context
 ├── specs/{spec-id}/
-│   ├── brd.md / prd.md              # Source documents
+│   ├── brd.md                       # Business Requirements Document
+│   ├── prd.md                       # Product Requirements Document
 │   ├── spec.md                      # Functional specification
 │   ├── plan.md                      # Technical plan
-│   ├── tasks.md                     # Executable tasks
 │   ├── research.md                  # Codebase analysis
 │   ├── validation.md                # Human approval record
 │   ├── implementation/              # Task execution logs
@@ -64,13 +109,13 @@ project-root/
 
 ## Workflow Stages
 
-1. **Ideation** (Human-Driven) - Brainstorming with AI assistance
-2. **Specification** (Human + AI) **[HUMAN GATE]** - Generate and approve spec.md
-3. **Context Engineering** (Autonomous) - Codebase analysis, create plan.md
-4. **Task Decomposition** (Autonomous) - Break into atomic tasks in tasks.md
-5. **Implementation** (Autonomous) - Parallel agent execution
-6. **Integration** (Autonomous) - Merge and validate
-7. **Completion** (Autonomous) - Final QA and merge to main
+1. **Business Requirements** (Human + AI) - Create BRD with `/specflow.brd`
+2. **Product Requirements** (Human + AI) - Create PRD with `/specflow.prd`
+3. **Specification** (Human + AI) **[HUMAN GATE]** - Generate and approve spec.md
+4. **Planning** (Autonomous) - Create technical plan.md
+5. **Task Decomposition** (Autonomous) - Create tasks in database
+6. **Implementation** (Autonomous) - Parallel agent execution
+7. **Quality Assurance** (Autonomous) - Final QA and merge
 
 ## Sub-Agent Delegation
 
@@ -80,37 +125,38 @@ project-root/
 - **specflow-tester**: Test creation and execution
 - **specflow-qa**: Final validation and sign-off
 
-## Commands Available
+## TUI Features
 
-- `/specflow.init` - Initialize SpecFlow project
-- `/specflow.ingest` - Import BRD/PRD document
-- `/specflow.specify` - Generate specification from requirements
-- `/specflow.plan` - Create technical implementation plan
-- `/specflow.tasks` - Decompose plan into executable tasks
-- `/specflow.implement` - Execute autonomous implementation
-- `/specflow.qa` - Run final QA validation
+Launch with `specflow tui`:
 
-## Key Files
-
-- `.specflow/config.yaml` - Project configuration
-- `.specflow/constitution.md` - Immutable principles
-- `specs/{id}/spec.md` - Functional requirements (human approved)
-- `specs/{id}/plan.md` - Technical approach (architect)
-- `specs/{id}/tasks.md` - Executable task list (architect)
+- **Specs Panel**: View all specifications and their status
+- **Spec Editor**: View/edit spec documents (BRD, PRD, spec, plan)
+- **Dependency Graph**: Visualize task dependencies
+- **Swimlane Board** (press 't'): Real-time task status across columns
+- **Agent Panel**: Live view of running Claude Code agents
 
 ## Database Schema
 
 - **specs**: id, title, status, source_type, metadata
 - **tasks**: id, spec_id, title, status, priority, dependencies, assignee
 - **execution_logs**: task_id, agent_type, action, output, success
+- **active_agents**: task_id, agent_type, slot, pid, started_at
 
 ## Task Status Flow
 
 ```
-pending → ready → in_progress → review → testing → qa → completed
+TODO → IMPLEMENTING → TESTING → REVIEWING → DONE
 ```
 
-Dependencies automatically tracked. Use `get_ready_tasks()` to find executable tasks.
+Tasks are stored in SQLite database, visible in TUI swimlane board.
+Use `specflow list-tasks` to see all tasks.
+
+## Agent Commands
+
+For TUI integration:
+- `specflow agent-start TASK-ID --type coder` - Register active agent
+- `specflow agent-stop --task TASK-ID` - Deregister agent
+- `specflow list-agents` - View active agents
 
 ## Best Practices
 
