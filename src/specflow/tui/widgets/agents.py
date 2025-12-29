@@ -1,8 +1,12 @@
 """Agents panel widget for TUI."""
 
+from datetime import datetime
+
 from textual.app import ComposeResult
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import VerticalScroll
 from textual.widgets import Label, Static
+
+from specflow.core.database import ActiveAgent
 
 
 class AgentSlot(Static):
@@ -15,36 +19,65 @@ class AgentSlot(Static):
         self.task_id: str | None = None
         self.agent_type: str | None = None
         self.status = "idle"
+        self.started_at: datetime | None = None
 
     def compose(self) -> ComposeResult:
         """Compose the agent slot."""
-        yield Label(f"Agent {self.slot_number}: Idle", id=f"agent-{self.slot_number}-label")
+        yield Label(f"[{self.slot_number}] Idle", id=f"agent-{self.slot_number}-label")
+
+    def update_from_db(self, agent: ActiveAgent | None) -> None:
+        """Update slot from database agent record."""
+        if agent:
+            self.task_id = agent.task_id
+            self.agent_type = agent.agent_type
+            self.status = "running"
+            self.started_at = agent.started_at
+            self._update_display()
+            self.add_class("active")
+        else:
+            if self.status != "idle":
+                self.task_id = None
+                self.agent_type = None
+                self.status = "idle"
+                self.started_at = None
+                self._update_display()
+                self.remove_class("active")
+
+    def _update_display(self) -> None:
+        """Update the display label."""
+        try:
+            label = self.query_one(f"#agent-{self.slot_number}-label", Label)
+            if self.status == "running" and self.agent_type and self.task_id:
+                # Calculate duration
+                duration_str = ""
+                if self.started_at:
+                    duration = (datetime.now() - self.started_at).total_seconds()
+                    mins = int(duration // 60)
+                    secs = int(duration % 60)
+                    duration_str = f" ({mins}:{secs:02d})"
+                label.update(f"[{self.slot_number}] {self.agent_type}: {self.task_id}{duration_str}")
+            else:
+                label.update(f"[{self.slot_number}] Idle")
+        except Exception:
+            pass
 
     def assign_task(self, task_id: str, agent_type: str) -> None:
         """Assign a task to this agent slot."""
         self.task_id = task_id
         self.agent_type = agent_type
         self.status = "running"
-        try:
-            label = self.query_one(f"#agent-{self.slot_number}-label", Label)
-            label.update(f"Agent {self.slot_number}: {agent_type} - {task_id}")
-            self.add_class("active")
-        except Exception:
-            # Widget not mounted yet
-            pass
+        self.started_at = datetime.now()
+        self._update_display()
+        self.add_class("active")
 
     def complete_task(self) -> None:
         """Mark task as completed."""
         self.task_id = None
         self.agent_type = None
         self.status = "idle"
-        try:
-            label = self.query_one(f"#agent-{self.slot_number}-label", Label)
-            label.update(f"Agent {self.slot_number}: Idle")
-            self.remove_class("active")
-        except Exception:
-            # Widget not mounted yet
-            pass
+        self.started_at = None
+        self._update_display()
+        self.remove_class("active")
 
 
 class AgentsPanel(VerticalScroll):
@@ -76,13 +109,57 @@ class AgentsPanel(VerticalScroll):
     }
     """
 
+    def __init__(self, **kwargs) -> None:
+        """Initialize the agents panel."""
+        super().__init__(**kwargs)
+        self._poll_timer = None
+
     def compose(self) -> ComposeResult:
         """Compose the agents panel."""
-        # Add help text
-        yield Static("Status display - shows agent execution slots (max 6)", classes="agent-help")
+        yield Static("Agent slots - polls database for active agents", classes="agent-help")
         # Max 6 agent slots
         for i in range(1, 7):
             yield AgentSlot(i)
+
+    def on_mount(self) -> None:
+        """Start polling when mounted."""
+        # Initial refresh
+        self._refresh_agents()
+        # Poll every 2 seconds
+        self._poll_timer = self.set_interval(2.0, self._refresh_agents)
+
+    def on_unmount(self) -> None:
+        """Stop polling when unmounted."""
+        if self._poll_timer:
+            self._poll_timer.stop()
+            self._poll_timer = None
+
+    def _refresh_agents(self) -> None:
+        """Refresh agent status from database."""
+        try:
+            from specflow.core.project import Project
+
+            project = self.app.project  # type: ignore
+            if not project:
+                return
+
+            # Clean up stale agents
+            project.db.cleanup_stale_agents()
+
+            # Get active agents
+            agents = project.db.list_active_agents()
+
+            # Build a map of slot -> agent
+            agent_by_slot: dict[int, ActiveAgent] = {a.slot: a for a in agents}
+
+            # Update each slot
+            for slot_widget in self.query(AgentSlot):
+                agent = agent_by_slot.get(slot_widget.slot_number)
+                slot_widget.update_from_db(agent)
+
+        except Exception:
+            # Silently handle errors (project not loaded, etc.)
+            pass
 
     def get_available_slot(self) -> AgentSlot | None:
         """Get an available agent slot."""

@@ -3,6 +3,7 @@
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from specflow.core.config import Config
@@ -91,6 +92,36 @@ def main() -> int:
         help="Project directory (default: current directory)",
     )
 
+    # agent-start command
+    agent_start_parser = subparsers.add_parser(
+        "agent-start", help="Register an active agent (for Claude Code integration)"
+    )
+    agent_start_parser.add_argument("task_id", help="Task ID the agent is working on")
+    agent_start_parser.add_argument(
+        "--type",
+        choices=["coder", "reviewer", "tester", "qa", "architect"],
+        default="coder",
+        help="Agent type (default: coder)",
+    )
+    agent_start_parser.add_argument(
+        "--worktree",
+        help="Path to the worktree",
+    )
+
+    # agent-stop command
+    agent_stop_parser = subparsers.add_parser(
+        "agent-stop", help="Deregister an active agent"
+    )
+    agent_stop_parser.add_argument(
+        "--task", dest="task_id", help="Task ID to deregister"
+    )
+    agent_stop_parser.add_argument(
+        "--slot", type=int, help="Slot number to deregister"
+    )
+
+    # list-agents command
+    subparsers.add_parser("list-agents", help="List active agents")
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -105,6 +136,12 @@ def main() -> int:
         return cmd_execute(args.spec, args.task, args.max_parallel, args.json)
     elif args.command == "tui":
         return cmd_tui(args.path)
+    elif args.command == "agent-start":
+        return cmd_agent_start(args.task_id, args.type, args.worktree, args.json)
+    elif args.command == "agent-stop":
+        return cmd_agent_stop(args.task_id, args.slot, args.json)
+    elif args.command == "list-agents":
+        return cmd_list_agents(args.json)
     else:
         # Default to TUI if no command specified
         return cmd_tui(Path.cwd())
@@ -416,6 +453,154 @@ def cmd_tui(path: Path) -> int:
         return 1
     except Exception as e:
         print(f"Error launching TUI: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_agent_start(
+    task_id: str,
+    agent_type: str = "coder",
+    worktree: str | None = None,
+    json_output: bool = False,
+) -> int:
+    """Register an active agent."""
+    import os
+
+    try:
+        project = Project.load()
+        pid = os.getpid()
+        slot = project.db.register_agent(
+            task_id=task_id,
+            agent_type=agent_type,
+            pid=pid,
+            worktree=worktree,
+        )
+
+        if json_output:
+            result = {
+                "success": True,
+                "slot": slot,
+                "task_id": task_id,
+                "agent_type": agent_type,
+                "pid": pid,
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Agent registered: slot {slot}, task {task_id}, type {agent_type}")
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_agent_stop(
+    task_id: str | None = None,
+    slot: int | None = None,
+    json_output: bool = False,
+) -> int:
+    """Deregister an active agent."""
+    try:
+        project = Project.load()
+
+        if not task_id and not slot:
+            if json_output:
+                result = {"success": False, "error": "Must specify --task or --slot"}
+                print(json.dumps(result, indent=2))
+            else:
+                print("Error: Must specify --task or --slot", file=sys.stderr)
+            return 1
+
+        success = project.db.deregister_agent(task_id=task_id, slot=slot)
+
+        if json_output:
+            result = {"success": success, "task_id": task_id, "slot": slot}
+            print(json.dumps(result, indent=2))
+        else:
+            if success:
+                print(f"Agent deregistered: task={task_id}, slot={slot}")
+            else:
+                print("No matching agent found")
+        return 0 if success else 1
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_list_agents(json_output: bool = False) -> int:
+    """List active agents."""
+    try:
+        project = Project.load()
+
+        # Clean up stale agents first
+        cleaned = project.db.cleanup_stale_agents()
+
+        agents = project.db.list_active_agents()
+
+        if json_output:
+            result = {
+                "success": True,
+                "count": len(agents),
+                "cleaned_stale": cleaned,
+                "agents": [a.to_dict() for a in agents],
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            if cleaned:
+                print(f"Cleaned {cleaned} stale agent(s)\n")
+
+            if not agents:
+                print("No active agents")
+            else:
+                print(f"Active agents ({len(agents)}):\n")
+                for agent in agents:
+                    duration = (
+                        datetime.now() - agent.started_at
+                    ).total_seconds()
+                    mins = int(duration // 60)
+                    secs = int(duration % 60)
+                    print(f"Slot {agent.slot}: {agent.agent_type}")
+                    print(f"  Task: {agent.task_id}")
+                    print(f"  PID: {agent.pid}")
+                    print(f"  Running: {mins}m {secs}s")
+                    if agent.worktree:
+                        print(f"  Worktree: {agent.worktree}")
+                    print()
+
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
         return 1
 
 

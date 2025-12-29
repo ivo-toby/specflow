@@ -40,7 +40,11 @@ The TUI swimlane board shows real-time progress.
 
 3. **For Each Task (parallel where possible):**
 
-   a. **Mark as IMPLEMENTING**
+   a. **Register Agent & Mark as IMPLEMENTING**
+   ```bash
+   # Register agent in TUI (shows in agent panel)
+   specflow agent-start {task-id} --type coder
+   ```
    ```python
    db.update_task_status(task.id, TaskStatus.IMPLEMENTING)
    ```
@@ -52,7 +56,11 @@ The TUI swimlane board shows real-time progress.
    - Implement the task requirements
    - Follow spec and plan guidelines
 
-   d. **Mark as TESTING**
+   d. **Switch to Tester Agent & Mark as TESTING**
+   ```bash
+   specflow agent-stop --task {task-id}
+   specflow agent-start {task-id} --type tester
+   ```
    ```python
    db.update_task_status(task.id, TaskStatus.TESTING)
    ```
@@ -61,7 +69,11 @@ The TUI swimlane board shows real-time progress.
    - Write and run tests
    - Ensure coverage
 
-   f. **Mark as REVIEWING**
+   f. **Switch to Reviewer Agent & Mark as REVIEWING**
+   ```bash
+   specflow agent-stop --task {task-id}
+   specflow agent-start {task-id} --type reviewer
+   ```
    ```python
    db.update_task_status(task.id, TaskStatus.REVIEWING)
    ```
@@ -70,16 +82,25 @@ The TUI swimlane board shows real-time progress.
    - Review code quality
    - Check spec compliance
 
-   h. **Execute with @specflow-qa**
+   h. **Switch to QA Agent**
+   ```bash
+   specflow agent-stop --task {task-id}
+   specflow agent-start {task-id} --type qa
+   ```
+
+   i. **Execute with @specflow-qa**
    - Final validation
    - Loop until QA approves (max 10 iterations)
 
-   i. **Mark as DONE**
+   j. **Deregister Agent & Mark as DONE**
+   ```bash
+   specflow agent-stop --task {task-id}
+   ```
    ```python
    db.update_task_status(task.id, TaskStatus.DONE)
    ```
 
-   j. **Check for Unblocked Tasks**
+   k. **Check for Unblocked Tasks**
    - Query `db.get_ready_tasks()` for newly available tasks
 
 4. **Log Execution**

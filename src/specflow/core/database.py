@@ -169,6 +169,31 @@ class ExecutionLog:
         }
 
 
+@dataclass
+class ActiveAgent:
+    """A currently running agent."""
+
+    id: int
+    task_id: str
+    agent_type: str
+    slot: int
+    pid: int | None
+    worktree: str | None
+    started_at: datetime
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "agent_type": self.agent_type,
+            "slot": self.slot,
+            "pid": self.pid,
+            "worktree": self.worktree,
+            "started_at": self.started_at.isoformat(),
+        }
+
+
 SCHEMA_SQL = """
 -- Specifications table
 CREATE TABLE IF NOT EXISTS specs (
@@ -244,6 +269,26 @@ UPDATE tasks SET status = 'done' WHERE status = 'completed';
 INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (2, datetime('now'));
 """
 
+MIGRATION_V3_SQL = """
+-- Active agents table for tracking running Claude Code agents
+CREATE TABLE IF NOT EXISTS active_agents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    agent_type TEXT NOT NULL,
+    slot INTEGER NOT NULL,
+    pid INTEGER,
+    worktree TEXT,
+    started_at TEXT NOT NULL,
+    UNIQUE(slot)
+);
+
+CREATE INDEX IF NOT EXISTS idx_active_agents_task_id ON active_agents(task_id);
+CREATE INDEX IF NOT EXISTS idx_active_agents_slot ON active_agents(slot);
+
+-- Update schema version
+INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (3, datetime('now'));
+"""
+
 
 class Database:
     """SQLite database for SpecFlow."""
@@ -285,6 +330,11 @@ class Database:
         # Migration v2: Update task statuses to new workflow values
         if current_version < 2:
             self.conn.executescript(MIGRATION_V2_SQL)
+            self.conn.commit()
+
+        # Migration v3: Add active_agents table
+        if current_version < 3:
+            self.conn.executescript(MIGRATION_V3_SQL)
             self.conn.commit()
 
     def close(self) -> None:
@@ -607,4 +657,122 @@ class Database:
             success=bool(row["success"]),
             duration_ms=row["duration_ms"],
             created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    # Active agent operations
+    def register_agent(
+        self,
+        task_id: str,
+        agent_type: str,
+        slot: int | None = None,
+        pid: int | None = None,
+        worktree: str | None = None,
+    ) -> int:
+        """Register an active agent.
+
+        Args:
+            task_id: ID of the task being worked on
+            agent_type: Type of agent (coder, reviewer, tester, qa)
+            slot: Slot number (1-6), auto-assigned if None
+            pid: Process ID of the agent
+            worktree: Path to the worktree
+
+        Returns:
+            The assigned slot number
+        """
+        with self.transaction() as cursor:
+            if slot is None:
+                # Find first available slot (1-6)
+                cursor.execute("SELECT slot FROM active_agents ORDER BY slot")
+                used_slots = {row[0] for row in cursor.fetchall()}
+                for s in range(1, 7):
+                    if s not in used_slots:
+                        slot = s
+                        break
+                if slot is None:
+                    raise ValueError("No available agent slots (max 6)")
+
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO active_agents
+                    (task_id, agent_type, slot, pid, worktree, started_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task_id,
+                    agent_type,
+                    slot,
+                    pid,
+                    worktree,
+                    datetime.now().isoformat(),
+                ),
+            )
+            return slot
+
+    def deregister_agent(self, task_id: str | None = None, slot: int | None = None) -> bool:
+        """Deregister an active agent by task_id or slot.
+
+        Args:
+            task_id: ID of the task to deregister
+            slot: Slot number to deregister
+
+        Returns:
+            True if an agent was deregistered
+        """
+        with self.transaction() as cursor:
+            if task_id:
+                cursor.execute("DELETE FROM active_agents WHERE task_id = ?", (task_id,))
+            elif slot:
+                cursor.execute("DELETE FROM active_agents WHERE slot = ?", (slot,))
+            else:
+                return False
+            return cursor.rowcount > 0
+
+    def list_active_agents(self) -> list[ActiveAgent]:
+        """List all active agents."""
+        cursor = self.conn.execute(
+            "SELECT * FROM active_agents ORDER BY slot ASC"
+        )
+        return [self._row_to_agent(row) for row in cursor.fetchall()]
+
+    def get_active_agent(self, task_id: str) -> ActiveAgent | None:
+        """Get active agent for a task."""
+        cursor = self.conn.execute(
+            "SELECT * FROM active_agents WHERE task_id = ?",
+            (task_id,),
+        )
+        row = cursor.fetchone()
+        return self._row_to_agent(row) if row else None
+
+    def cleanup_stale_agents(self) -> int:
+        """Remove agents whose processes are no longer running.
+
+        Returns:
+            Number of stale agents cleaned up
+        """
+        import os
+
+        agents = self.list_active_agents()
+        cleaned = 0
+        for agent in agents:
+            if agent.pid:
+                try:
+                    # Check if process exists (sends signal 0)
+                    os.kill(agent.pid, 0)
+                except OSError:
+                    # Process doesn't exist, clean up
+                    self.deregister_agent(slot=agent.slot)
+                    cleaned += 1
+        return cleaned
+
+    def _row_to_agent(self, row: sqlite3.Row) -> ActiveAgent:
+        """Convert a database row to an ActiveAgent object."""
+        return ActiveAgent(
+            id=row["id"],
+            task_id=row["task_id"],
+            agent_type=row["agent_type"],
+            slot=row["slot"],
+            pid=row["pid"],
+            worktree=row["worktree"],
+            started_at=datetime.fromisoformat(row["started_at"]),
         )
