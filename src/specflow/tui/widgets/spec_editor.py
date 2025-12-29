@@ -50,6 +50,22 @@ class SpecEditor(Container):
                     id="editor-overview"
                 )
 
+            with TabPane("BRD", id="tab-brd"):
+                yield TextArea(
+                    "No brd.md available",
+                    language="markdown",
+                    theme="monokai",
+                    id="editor-brd"
+                )
+
+            with TabPane("PRD", id="tab-prd"):
+                yield TextArea(
+                    "No prd.md available",
+                    language="markdown",
+                    theme="monokai",
+                    id="editor-prd"
+                )
+
             with TabPane("Spec", id="tab-spec"):
                 yield TextArea(
                     "No spec.md available",
@@ -143,6 +159,8 @@ class SpecEditor(Container):
     def _show_loading_indicator(self, tab_id: str) -> None:
         """Show loading indicator in tab."""
         loading_messages = {
+            "tab-brd": "# Loading business requirements...\n\nPlease wait while the content loads.",
+            "tab-prd": "# Loading product requirements...\n\nPlease wait while the content loads.",
             "tab-spec": "# Loading specification...\n\nPlease wait while the content loads.",
             "tab-plan": "# Loading implementation plan...\n\nPlease wait while the content loads.",
             "tab-tasks": "# Loading tasks...\n\nPlease wait while the content loads.",
@@ -155,6 +173,8 @@ class SpecEditor(Container):
         """Load tab content asynchronously."""
         # Update app status
         tab_names = {
+            "tab-brd": "business requirements",
+            "tab-prd": "product requirements",
             "tab-spec": "specification",
             "tab-plan": "plan",
             "tab-tasks": "tasks",
@@ -176,7 +196,11 @@ class SpecEditor(Container):
             pass
 
         # Load the content
-        if tab_id == "tab-spec":
+        if tab_id == "tab-brd":
+            self._load_file_to_tab(self.spec_dir / "brd.md", tab_id)
+        elif tab_id == "tab-prd":
+            self._load_file_to_tab(self.spec_dir / "prd.md", tab_id)
+        elif tab_id == "tab-spec":
             self._load_file_to_tab(self.spec_dir / "spec.md", tab_id)
         elif tab_id == "tab-plan":
             self._load_file_to_tab(self.spec_dir / "plan.md", tab_id)
@@ -279,6 +303,8 @@ class SpecEditor(Container):
             # Map tab IDs to editor IDs
             editor_ids = {
                 "tab-overview": "editor-overview",
+                "tab-brd": "editor-brd",
+                "tab-prd": "editor-prd",
                 "tab-spec": "editor-spec",
                 "tab-plan": "editor-plan",
                 "tab-tasks": "editor-tasks",
@@ -306,6 +332,8 @@ class SpecEditor(Container):
         """Track changes in text areas."""
         # Map editor IDs back to tab IDs
         tab_map = {
+            "editor-brd": "tab-brd",
+            "editor-prd": "tab-prd",
             "editor-spec": "tab-spec",
             "editor-plan": "tab-plan",
             "editor-tasks": "tab-tasks",
@@ -369,6 +397,8 @@ class SpecEditor(Container):
 
             # Map tab to file
             file_map = {
+                "tab-brd": "brd.md",
+                "tab-prd": "prd.md",
                 "tab-spec": "spec.md",
                 "tab-plan": "plan.md",
                 "tab-tasks": "tasks.md",
@@ -396,6 +426,8 @@ class SpecEditor(Container):
 
             # Get editor content
             editor_ids = {
+                "tab-brd": "editor-brd",
+                "tab-prd": "editor-prd",
                 "tab-spec": "editor-spec",
                 "tab-plan": "editor-plan",
                 "tab-tasks": "editor-tasks",
