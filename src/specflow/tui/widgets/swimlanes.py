@@ -224,9 +224,8 @@ class TaskDetailModal(ModalScreen):
     }
 
     TaskDetailModal > Vertical {
-        width: 95%;
-        height: 95%;
-        border: thick $primary;
+        width: 100%;
+        height: 100%;
         background: $surface;
         padding: 1 2;
     }
@@ -238,21 +237,13 @@ class TaskDetailModal(ModalScreen):
         text-style: bold;
     }
 
-    TaskDetailModal #task-detail-content {
-        height: 1fr;
-        width: 100%;
-        margin: 1 0;
-    }
-
     TaskDetailModal .detail-label {
-        height: auto;
+        height: 1;
         text-style: bold;
-        margin-top: 1;
     }
 
     TaskDetailModal #task-detail-description {
-        height: 1fr;
-        min-height: 10;
+        height: 30;
         width: 100%;
         border: solid $secondary;
         background: $surface-darken-1;
@@ -273,14 +264,14 @@ class TaskDetailModal(ModalScreen):
     }
 
     TaskDetailModal #task-detail-buttons {
-        height: 5;
+        height: 3;
         width: 100%;
         align: center middle;
         dock: bottom;
     }
 
     TaskDetailModal #task-detail-buttons Button {
-        margin: 1 2;
+        margin: 0 2;
         min-width: 12;
     }
     """
@@ -301,27 +292,25 @@ class TaskDetailModal(ModalScreen):
                 f"Task: {self._task_data.id} - {self._task_data.title}",
                 id="task-detail-header"
             )
+            yield Static("Description:", classes="detail-label")
+            desc = self._task_data.description or "(No description)"
+            yield TextArea(desc, read_only=True, id="task-detail-description", show_line_numbers=False)
 
-            with VerticalScroll(id="task-detail-content"):
-                yield Static("Description:", classes="detail-label")
-                desc = self._task_data.description or "(No description)"
-                yield TextArea(desc, read_only=True, id="task-detail-description", show_line_numbers=False)
+            # Metadata
+            with Container(id="task-detail-meta"):
+                yield Static(f"[b]Status:[/b] {self._task_data.status.value}")
+                yield Static(f"[b]Priority:[/b] P{self._task_data.priority}")
+                deps = ", ".join(self._task_data.dependencies) or "None"
+                yield Static(f"[b]Dependencies:[/b] {deps}")
+                yield Static(f"[b]Assignee:[/b] {self._task_data.assignee or 'Unassigned'}")
 
-                # Metadata
-                with Container(id="task-detail-meta"):
-                    yield Static(f"[b]Status:[/b] {self._task_data.status.value}")
-                    yield Static(f"[b]Priority:[/b] P{self._task_data.priority}")
-                    deps = ", ".join(self._task_data.dependencies) or "None"
-                    yield Static(f"[b]Dependencies:[/b] {deps}")
-                    yield Static(f"[b]Assignee:[/b] {self._task_data.assignee or 'Unassigned'}")
-
-                # Execution logs
-                if self._execution_logs:
-                    with Container(id="task-detail-logs"):
-                        yield Static("[b]Execution History (last 5)[/b]")
-                        for log in self._execution_logs[-5:]:
-                            status = "[green]OK[/green]" if log.success else "[red]FAIL[/red]"
-                            yield Static(f"  {log.agent_type}: {log.action} {status}")
+            # Execution logs
+            if self._execution_logs:
+                with Container(id="task-detail-logs"):
+                    yield Static("[b]Execution History (last 5)[/b]")
+                    for log in self._execution_logs[-5:]:
+                        status = "[green]OK[/green]" if log.success else "[red]FAIL[/red]"
+                        yield Static(f"  {log.agent_type}: {log.action} {status}")
 
             with Horizontal(id="task-detail-buttons"):
                 yield Button("Edit [e]", variant="warning", id="btn-edit-detail")
@@ -348,9 +337,8 @@ class TaskEditModal(ModalScreen):
     }
 
     TaskEditModal > Vertical {
-        width: 95%;
-        height: 95%;
-        border: thick $warning;
+        width: 100%;
+        height: 100%;
         background: $surface;
         padding: 1 2;
     }
@@ -363,16 +351,9 @@ class TaskEditModal(ModalScreen):
         text-style: bold;
     }
 
-    TaskEditModal #task-edit-content {
-        height: 1fr;
-        width: 100%;
-        margin: 1 0;
-    }
-
     TaskEditModal .edit-label {
-        height: auto;
+        height: 1;
         text-style: bold;
-        margin-top: 1;
     }
 
     TaskEditModal #task-edit-title {
@@ -383,22 +364,21 @@ class TaskEditModal(ModalScreen):
     }
 
     TaskEditModal #task-edit-description {
-        height: 1fr;
-        min-height: 10;
+        height: 30;
         width: 100%;
         border: solid $primary;
         background: $surface-darken-1;
     }
 
     TaskEditModal #task-edit-buttons {
-        height: 5;
+        height: 3;
         width: 100%;
         align: center middle;
         dock: bottom;
     }
 
     TaskEditModal #task-edit-buttons Button {
-        margin: 1 2;
+        margin: 0 2;
         min-width: 16;
     }
     """
@@ -418,20 +398,18 @@ class TaskEditModal(ModalScreen):
                 f"Edit Task: {self._task_data.id}",
                 id="task-edit-header"
             )
-
-            with VerticalScroll(id="task-edit-content"):
-                yield Static("Title:", classes="edit-label")
-                yield TextArea(
-                    self._task_data.title,
-                    id="task-edit-title",
-                    show_line_numbers=False
-                )
-                yield Static("Description:", classes="edit-label")
-                yield TextArea(
-                    self._task_data.description or "",
-                    id="task-edit-description",
-                    show_line_numbers=False
-                )
+            yield Static("Title:", classes="edit-label")
+            yield TextArea(
+                self._task_data.title,
+                id="task-edit-title",
+                show_line_numbers=False
+            )
+            yield Static("Description:", classes="edit-label")
+            yield TextArea(
+                self._task_data.description or "",
+                id="task-edit-description",
+                show_line_numbers=False
+            )
 
             with Horizontal(id="task-edit-buttons"):
                 yield Button("Save [Ctrl+S]", variant="success", id="btn-save-edit")
