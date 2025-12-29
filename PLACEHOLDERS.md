@@ -104,9 +104,108 @@ def action_help(self) -> None:
 
 ---
 
+### 5. Agent-Created Follow-up Tasks
+
+**File:** `src/specflow/orchestration/execution.py:201-287`
+**Status:** Not Started
+**Description:** Agents should create follow-up tasks when they encounter technical debt, placeholders, or improvement opportunities during implementation.
+
+**Problem:**
+During implementation, agents often:
+- Create placeholder code (`# TODO`, `raise NotImplementedError`)
+- Notice technical debt in surrounding code
+- Identify refactoring opportunities
+- Find missing test coverage
+- Discover edge cases not in the spec
+
+Currently this knowledge is lost when the agent finishes its task.
+
+**Solution:**
+Instruct agents to create follow-up tasks via CLI when they encounter these situations.
+
+**Task Categories:**
+
+| Prefix | Category | Created By | Priority |
+|--------|----------|------------|----------|
+| `PLACEHOLDER-` | Placeholder implementations | Coder | 2 |
+| `TECH-DEBT-` | Technical debt | Coder, Reviewer | 3 |
+| `REFACTOR-` | Refactoring opportunities | Reviewer | 3 |
+| `TEST-GAP-` | Missing test coverage | Tester | 2 |
+| `EDGE-CASE-` | Unhandled edge cases | Tester, QA | 2 |
+| `DOC-` | Documentation gaps | Reviewer | 3 |
+
+**Implementation:**
+
+1. **Update agent prompts** in `_build_agent_prompt()`:
+
+```python
+# Add to all agent prompts:
+prompt += """
+## Creating Follow-up Tasks
+
+When you encounter work that should be done but is outside your current task scope,
+create a follow-up task using:
+
+```bash
+specflow task-create {CATEGORY}-{NUMBER} {SPEC-ID} "Task title" \\
+    --priority {2|3} \\
+    --description "Detailed description of what needs to be done"
+```
+
+Categories:
+- PLACEHOLDER-xxx: Code you marked with TODO/NotImplementedError
+- TECH-DEBT-xxx: Technical debt you noticed
+- REFACTOR-xxx: Code that should be refactored
+- TEST-GAP-xxx: Missing test coverage
+- EDGE-CASE-xxx: Edge cases that need handling
+
+Always create tasks rather than leaving undocumented TODOs in code.
+"""
+```
+
+2. **Track task origin** - Add metadata to tasks:
+
+```python
+# In task creation, add metadata:
+task.metadata["created_by_agent"] = agent_type.value
+task.metadata["parent_task"] = current_task_id
+task.metadata["category"] = "tech-debt"  # or placeholder, refactor, etc.
+```
+
+3. **Add CLI support** for easier task creation:
+
+```bash
+# New command for agents:
+specflow task-followup TECH-DEBT-001 "Refactor database connection pooling" \
+    --parent TASK-005 \
+    --category tech-debt
+```
+
+4. **TUI integration** - Show follow-up tasks with special indicator:
+- Badge or icon for agent-created tasks
+- Filter to show only follow-up tasks
+- Link to parent task
+
+**Benefits:**
+- Nothing falls through the cracks
+- Technical debt is tracked, not ignored
+- Creates a backlog of improvements
+- Agents become more thorough knowing they can defer work
+- Human oversight of what agents flag as needing attention
+
+**Example agent output:**
+```
+Implementing user authentication...
+Found: Database connection not using pooling (tech debt)
+Creating follow-up task: TECH-DEBT-042 "Add connection pooling to database module"
+Continuing with current task...
+```
+
+---
+
 ## Medium Priority
 
-### 5. Cross-Session Memory System
+### 6. Cross-Session Memory System
 
 **File:** `.specflow/memory/` directory
 **Status:** Partial
@@ -120,7 +219,7 @@ def action_help(self) -> None:
 
 ---
 
-### 6. Parallel Task Execution
+### 7. Parallel Task Execution
 
 **File:** `src/specflow/orchestration/execution.py`
 **Status:** Partial
@@ -136,7 +235,7 @@ def action_help(self) -> None:
 
 ---
 
-### 7. JSONL Sync for Git-Friendly Database
+### 8. JSONL Sync for Git-Friendly Database
 
 **File:** `src/specflow/core/sync.py` (if exists)
 **Status:** Not Started
@@ -151,7 +250,7 @@ def action_help(self) -> None:
 
 ## Low Priority
 
-### 8. Agent Model Configuration
+### 9. Agent Model Configuration
 
 **File:** `.specflow/config.yaml`
 **Status:** Partial
@@ -167,7 +266,7 @@ def action_help(self) -> None:
 
 ---
 
-### 9. Task Priority Queuing
+### 10. Task Priority Queuing
 
 **File:** `src/specflow/orchestration/agent_pool.py`
 **Status:** Partial
@@ -182,7 +281,7 @@ def action_help(self) -> None:
 
 ---
 
-### 10. Execution Timeout Configuration
+### 11. Execution Timeout Configuration
 
 **File:** `src/specflow/orchestration/execution.py:74`
 **Status:** Partial
