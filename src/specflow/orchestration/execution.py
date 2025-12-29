@@ -94,8 +94,8 @@ class ExecutionPipeline:
 
                 # If failed, check if we should retry
                 if iteration >= stage.max_iterations:
-                    # Max iterations reached for this stage
-                    task.status = TaskStatus.FAILED
+                    # Max iterations reached for this stage - reset to todo
+                    task.status = TaskStatus.TODO
                     task.metadata["failure_stage"] = stage.name
                     task.metadata["failure_reason"] = result.output
                     self.project.db.update_task(task)
@@ -105,7 +105,7 @@ class ExecutionPipeline:
                 return False
 
         # All stages passed
-        task.status = TaskStatus.COMPLETED
+        task.status = TaskStatus.DONE
         task.updated_at = datetime.now()
         self.project.db.update_task(task)
         return True
@@ -175,12 +175,12 @@ Status: Success
     def _get_stage_status(self, agent_type: AgentType) -> TaskStatus:
         """Get task status for a given agent type."""
         status_map = {
-            AgentType.CODER: TaskStatus.IN_PROGRESS,
-            AgentType.REVIEWER: TaskStatus.REVIEW,
+            AgentType.CODER: TaskStatus.IMPLEMENTING,
+            AgentType.REVIEWER: TaskStatus.REVIEWING,
             AgentType.TESTER: TaskStatus.TESTING,
-            AgentType.QA: TaskStatus.QA,
+            AgentType.QA: TaskStatus.REVIEWING,  # QA uses reviewing status
         }
-        return status_map.get(agent_type, TaskStatus.IN_PROGRESS)
+        return status_map.get(agent_type, TaskStatus.IMPLEMENTING)
 
     def get_pipeline_info(self) -> dict[str, Any]:
         """Get information about the pipeline configuration."""
