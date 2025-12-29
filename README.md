@@ -1,35 +1,110 @@
-# SpecFlow
+<p align="center">
+  <img src="assets/logo.png" alt="SpecFlow Logo" width="400">
+</p>
 
-A TUI-based spec-driven development orchestrator that unifies BRD/PRD ingestion, human-validated specifications, and fully autonomous implementation through multi-agent orchestration.
+<p align="center">
+  <strong>From requirements to working code — autonomously.</strong>
+</p>
+
+<p align="center">
+  <a href="#installation">Installation</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#features">Features</a> •
+  <a href="#cli-reference">CLI Reference</a> •
+  <a href="#architecture">Architecture</a>
+</p>
+
+---
+
+## What is SpecFlow?
+
+SpecFlow transforms how you build software. Feed it a business requirements document, and watch as AI agents autonomously architect, implement, test, and review your code — all while you monitor progress in a beautiful terminal UI.
+
+**The problem:** Building software from requirements is a manual, error-prone process that requires constant human intervention at every stage.
+
+**The solution:** SpecFlow orchestrates specialized AI agents that work in parallel, each focused on what they do best:
+
+- **Architect** designs the technical approach
+- **Coder** implements features in isolated git worktrees
+- **Reviewer** ensures code quality and standards
+- **Tester** writes and runs comprehensive tests
+- **QA** validates everything meets the original requirements
+
+You stay in control through human approval gates during specification, then let the agents execute autonomously while you track real-time progress.
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/tui-start.png" alt="SpecFlow TUI - Start Screen" width="800">
+  <br><em>Dashboard with specs, agents, and dependency graph</em>
+</p>
+
+<p align="center">
+  <img src="assets/tui-kanban.png" alt="SpecFlow TUI - Kanban Board" width="800">
+  <br><em>Task swimlane board showing real-time progress</em>
+</p>
+
+<p align="center">
+  <img src="assets/tui-spec.png" alt="SpecFlow TUI - Spec View" width="800">
+  <br><em>Specification viewer with markdown rendering</em>
+</p>
+
+<p align="center">
+  <img src="assets/tui-edit-task.png" alt="SpecFlow TUI - Edit Task" width="800">
+  <br><em>Task editor with status and dependency management</em>
+</p>
 
 ## Features
 
-- **BRD/PRD Ingestion**: Import business and product requirement documents
-- **Specification Generation**: AI-assisted specification creation with clarification workflow
-- **Multi-Agent Orchestration**: Parallel execution with specialized agents (Architect, Coder, Reviewer, Tester, QA)
-- **Git Worktree Management**: Isolated task execution environments
-- **3-Tier Merge Strategy**: Auto-merge → AI conflict resolution → AI file regeneration
-- **Cross-Session Memory**: Entity extraction and context persistence
-- **Interactive TUI**: Terminal UI for real-time project monitoring
-- **Headless CLI**: JSON output for CI/CD integration
-- **JSONL Sync**: Git-friendly database synchronization (Beads pattern)
+### Document Ingestion & Specification
+- **Interactive BRD/PRD Creation** — Guided workflows to capture business and product requirements
+- **Document Ingestion** — Import existing requirement documents
+- **AI-Assisted Specification** — Generate functional specs with clarification workflow
+- **Human Approval Gates** — You control when specs are ready for implementation
+
+### Multi-Agent Orchestration
+- **5 Specialized Agents** — Architect, Coder, Reviewer, Tester, QA
+- **6 Parallel Execution Slots** — Run multiple agents simultaneously
+- **Database-Driven Task Management** — Real-time status tracking
+- **Automatic Agent Registration** — TUI shows which agent is working on what
+
+### Git Integration
+- **Isolated Worktrees** — Each task runs in its own git worktree
+- **Automatic Branching** — `task/{task-id}` branches for every task
+- **3-Tier Merge Strategy** — Auto-merge → AI conflict resolution → AI file regeneration
+- **Clean Merges** — Automatic cleanup of worktrees and branches
+
+### Developer Experience
+- **Interactive TUI** — Beautiful terminal UI for monitoring progress
+- **Swimlane Board** — Kanban-style task tracking (Todo → Implementing → Testing → Reviewing → Done)
+- **Dependency Graph** — Visualize task dependencies
+- **Full CLI** — Every operation available via command line with JSON output
+- **CI/CD Ready** — Headless mode for automation pipelines
+
+### Persistence & Memory
+- **SQLite Database** — Fast local storage for specs, tasks, and agents
+- **Cross-Session Memory** — Entity extraction and context persistence
+- **JSONL Sync** — Git-friendly database synchronization
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.12 or higher
+- Python 3.12+
 - Git
 - [uv](https://github.com/astral-sh/uv) package manager
+
+### Install via pipx (Recommended)
+
+```bash
+pipx install git+https://github.com/ivo-toby/specflow.git
+```
 
 ### Install from source
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/specflow.git
+git clone https://github.com/ivo-toby/specflow.git
 cd specflow
-
-# Install dependencies
 uv pip install -e ".[dev]"
 ```
 
@@ -38,165 +113,173 @@ uv pip install -e ".[dev]"
 ### 1. Initialize a project
 
 ```bash
-# Initialize SpecFlow in current directory
+cd your-project
 specflow init
-
-# Or specify a directory
-specflow init --path /path/to/project
 ```
 
 This creates:
-- `.specflow/` - Configuration and database
-- `specs/` - Specification documents
-- `.claude/` - Agent definitions and skills
-- `.worktrees/` - Task execution environments (git-ignored)
+- `.specflow/` — Configuration and database
+- `specs/` — Specification documents
+- `.claude/` — Agent definitions, skills, and commands
+- `.worktrees/` — Task execution environments (git-ignored)
 
 ### 2. Launch the TUI
 
 ```bash
-# Start the terminal UI
 specflow tui
-
-# Or from a specific directory
-specflow tui --path /path/to/project
 ```
 
-**TUI Keyboard Shortcuts:**
-- `q` - Quit
-- `s` - Focus specs panel
-- `a` - Focus agents panel
-- `e` - Focus spec editor
-- `g` - Focus dependency graph
-- `r` - Refresh all panels
+**Keyboard Shortcuts:**
+| Key | Action |
+|-----|--------|
+| `q` | Quit |
+| `s` | Focus specs panel |
+| `a` | Focus agents panel |
+| `t` | Focus tasks/swimlane |
+| `e` | Focus spec editor |
+| `g` | Focus dependency graph |
+| `r` | Refresh all panels |
 
-### 3. Ingest a BRD/PRD (via skill)
+### 3. Create requirements (via Claude Code)
 
 ```bash
-# Use the specflow.ingest skill to import documents
-# This creates a spec draft in specs/{spec-id}/
+# Interactive BRD creation
+/specflow.brd
+
+# Interactive PRD creation
+/specflow.prd
+
+# Or ingest existing documents
 /specflow.ingest path/to/requirements.md
 ```
 
-### 4. Generate specification (via skill)
+### 4. Generate specification
 
 ```bash
-# Generate functional spec with clarifications
 /specflow.specify {spec-id}
 ```
 
-### 5. Execute implementation (via skill)
+### 5. Create implementation tasks
 
 ```bash
-# Run autonomous implementation
+/specflow.tasks {spec-id}
+```
+
+### 6. Execute autonomous implementation
+
+```bash
 /specflow.implement {spec-id}
 ```
 
+Watch agents work in the TUI as tasks flow through the pipeline!
+
 ## CLI Reference
 
-### Core Commands
+### Project Management
 
 ```bash
-# Initialize project
-specflow init [--path PATH]
-
-# Show project status
-specflow status [--json]
-
-# Launch TUI interface
-specflow tui [--path PATH]
+specflow init [--path PATH] [--update]     # Initialize or update project
+specflow status [--json]                    # Show project status
+specflow tui [--path PATH]                  # Launch terminal UI
 ```
 
-### Headless Mode (CI/CD)
+### Specification Management
 
 ```bash
-# List specifications
 specflow list-specs [--status STATUS] [--json]
-
-# List tasks
-specflow list-tasks [--spec SPEC_ID] [--status STATUS] [--json]
-
-# Execute tasks
-specflow execute [--spec SPEC_ID] [--task TASK_ID] [--max-parallel 6] [--json]
+specflow spec-create <id> [--title TITLE] [--source-type brd|prd]
+specflow spec-update <id> [--status STATUS] [--title TITLE]
+specflow spec-get <id> [--json]
 ```
 
-**Status values**: `draft`, `approved`, `in_progress`, `completed`, `pending`, `review`, `testing`, `qa`, `failed`
-
-### Example: CI/CD Integration
+### Task Management
 
 ```bash
-# Execute all ready tasks and output JSON
-specflow execute --json > results.json
+specflow list-tasks [--spec ID] [--status STATUS] [--json]
+specflow task-create <id> <spec-id> <title> [--priority 1|2|3] [--dependencies IDS]
+specflow task-update <id> <status>
+```
 
-# Check exit code (0 = success, 1 = failures)
-if [ $? -eq 0 ]; then
-  echo "All tasks completed successfully"
-else
-  echo "Some tasks failed"
-  jq '.failed' results.json
-fi
+**Task statuses:** `todo`, `implementing`, `testing`, `reviewing`, `done`
+
+### Agent Management
+
+```bash
+specflow agent-start <task-id> --type coder|tester|reviewer|qa
+specflow agent-stop --task <task-id>
+specflow list-agents [--json]
+```
+
+### Worktree & Merge
+
+```bash
+specflow worktree-create <task-id> [--base main]
+specflow worktree-commit <task-id> "message"
+specflow worktree-list [--json]
+specflow worktree-remove <task-id> [--force]
+specflow merge-task <task-id> [--target main] [--cleanup]
+```
+
+### Headless Execution
+
+```bash
+specflow execute [--spec ID] [--task ID] [--max-parallel 6] [--json]
 ```
 
 ## Architecture
+
+### Workflow
+
+```
+BRD/PRD → Specification → Tasks → Implementation → Merge
+   ↓          ↓            ↓           ↓            ↓
+ Human     Human        Auto      Autonomous    Auto/AI
+ Input    Approval                 Agents
+```
+
+### Task Pipeline
+
+```
+TODO → IMPLEMENTING → TESTING → REVIEWING → DONE
+         (Coder)      (Tester)  (Reviewer)   (QA)
+```
+
+Each task flows through specialized agents with automatic retry and escalation.
+
+### Agent Pool
+
+- **6 concurrent slots** — Parallel task execution
+- **Priority queuing** — High-priority tasks execute first
+- **Real-time status** — TUI updates as agents work
+- **Automatic cleanup** — Stale agents are detected and removed
+
+### Merge Strategy
+
+1. **Tier 1: Git Auto-Merge** — Fast-forward or automatic merge
+2. **Tier 2: AI Conflict Resolution** — AI resolves only conflicted sections
+3. **Tier 3: AI File Regeneration** — AI regenerates entire conflicted files
 
 ### Project Structure
 
 ```
 project/
 ├── .specflow/
-│   ├── config.yaml          # Project configuration
+│   ├── config.yaml          # Configuration
 │   ├── database.db          # SQLite database
-│   ├── specs.jsonl          # Git-friendly spec sync
-│   ├── tasks.jsonl          # Git-friendly task sync
-│   └── memory/
-│       └── entities.json    # Cross-session memory
+│   └── memory/              # Cross-session memory
 ├── specs/
 │   └── {spec-id}/
+│       ├── brd.md           # Business requirements
+│       ├── prd.md           # Product requirements
 │       ├── spec.md          # Functional specification
-│       ├── plan.md          # Implementation plan
-│       └── tasks.md         # Task breakdown
+│       └── plan.md          # Implementation plan
 ├── .claude/
 │   ├── agents/              # Agent definitions
 │   ├── skills/              # Auto-loading skills
 │   └── commands/            # Slash commands
-└── .worktrees/              # Task execution (git-ignored)
-    └── {task-id}/           # Isolated worktree per task
+└── .worktrees/              # Task worktrees (git-ignored)
+    └── {task-id}/
 ```
-
-### Agent Pipeline
-
-Tasks flow through a 4-stage pipeline with iteration limits:
-
-1. **Implementation** (Coder) - max 3 iterations
-2. **Code Review** (Reviewer) - max 2 iterations
-3. **Testing** (Tester) - max 2 iterations
-4. **QA Validation** (QA) - max 10 iterations
-
-Maximum total iterations: 10 across all stages
-
-### Agent Pool
-
-- Max 6 concurrent agent slots
-- Task queueing with priority-based dequeuing
-- Real-time status callbacks
-- Automatic slot management
-
-### Merge Strategy (3-Tier)
-
-1. **Tier 1: Git Auto-Merge** - No conflicts, automatic merge
-2. **Tier 2: AI Conflict Resolution** - AI resolves only conflicted sections
-3. **Tier 3: AI File Regeneration** - AI regenerates entire conflicted files
-
-Automatically escalates to next tier on failure.
-
-### Memory Store
-
-Extracts and persists entities across sessions:
-
-- **Files**: Extracted from text references
-- **Decisions**: Pattern-matched from notes
-- **Concepts**: User-defined knowledge
-- **Patterns**: Architectural patterns
-- **Dependencies**: Project dependencies
 
 ## Configuration
 
@@ -205,7 +288,6 @@ Edit `.specflow/config.yaml`:
 ```yaml
 project_name: my-project
 
-# Agent configuration
 agents:
   max_parallel: 6
   architect:
@@ -219,193 +301,61 @@ agents:
   qa:
     model: sonnet
 
-# Execution settings
 execution:
   max_iterations: 10
   timeout_minutes: 30
-
-# Memory settings
-memory:
-  cleanup_days: 90  # Auto-cleanup old entities
-
-# SpecKit integration (optional)
-speckit:
-  enabled: true
-  cli_path: speckit  # or /path/to/speckit
 ```
 
 ## Development
 
-### Running Tests
-
 ```bash
-# Run all tests
+# Run tests
 uv run pytest
 
-# Run specific test file
-uv run pytest tests/test_orchestration.py
-
-# Run with coverage
-uv run pytest --cov=specflow --cov-report=html
-
-# Run specific test
-uv run pytest tests/test_agent_pool.py::test_pool_creation -v
-```
-
-### Code Quality
-
-```bash
 # Type checking
 uv run mypy src/specflow
 
-# Linting
+# Linting & formatting
 uv run ruff check src/specflow
-
-# Formatting
 uv run ruff format src/specflow
-```
-
-### Project Structure (Code)
-
-```
-src/specflow/
-├── cli.py                   # CLI entry point
-├── core/
-│   ├── config.py            # Configuration management
-│   ├── database.py          # SQLite database
-│   ├── project.py           # Project initialization
-│   └── sync.py              # JSONL synchronization
-├── ingestion/
-│   ├── ingest.py            # BRD/PRD ingestion
-│   └── validator.py         # Spec validation
-├── speckit/
-│   └── wrapper.py           # SpecKit CLI wrapper
-├── orchestration/
-│   ├── agent_pool.py        # Agent pool manager
-│   ├── worktree.py          # Git worktree manager
-│   ├── execution.py         # Execution pipeline
-│   └── merge.py             # Merge orchestrator
-├── memory/
-│   └── store.py             # Memory store
-└── tui/
-    ├── app.py               # Main TUI app
-    └── widgets/             # TUI widgets
-        ├── specs.py
-        ├── agents.py
-        ├── editor.py
-        └── dependency_graph.py
-```
-
-## Advanced Usage
-
-### Creating Custom Agents
-
-Add agent definitions to `.claude/agents/`:
-
-```markdown
----
-name: custom-agent
-model: sonnet
-tools: [Read, Write, Edit, Bash]
----
-
-You are a specialized agent for...
-
-## Your Role
-
-...
-
-## Guidelines
-
-...
-```
-
-### Custom Skills
-
-Add skills to `.claude/skills/`:
-
-```
-.claude/skills/
-└── my-skill/
-    ├── SKILL.md             # Skill definition
-    └── resources/           # Optional resources
-```
-
-### Hooks
-
-Configure hooks in `.claude/hooks.yaml`:
-
-```yaml
-pre-commit:
-  - script: .claude/hooks/pre-commit.sh
-post-task:
-  - script: .claude/hooks/notify.sh
 ```
 
 ## Troubleshooting
 
-### TUI not launching
+### TUI not updating
 
 ```bash
-# Check if Textual is installed
-uv pip install textual
-
-# Verify installation
-specflow --version
+# Reinstall and update templates
+pipx install --force /path/to/specflow
+specflow init --update
 ```
 
-### Database errors
+### Agent status not showing
+
+Ensure agents call `specflow agent-start` and `specflow agent-stop` commands.
+
+### Worktree issues
 
 ```bash
-# Reinitialize database (preserves config)
-rm .specflow/database.db
-specflow status  # Auto-recreates schema
-```
-
-### Agent execution issues
-
-```bash
-# Check agent pool status
-specflow list-tasks --status in_progress
-
-# View execution logs
-cat .specflow/execution_logs.jsonl
-```
-
-### Worktree conflicts
-
-```bash
-# List all worktrees
-git worktree list
-
-# Manually cleanup
-rm -rf .worktrees/*
-git worktree prune
+specflow worktree-list              # See all worktrees
+specflow worktree-remove <id> --force  # Force remove
+git worktree prune                  # Clean up git references
 ```
 
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+2. Create a feature branch
 3. Make your changes
 4. Run tests (`uv run pytest`)
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
+5. Submit a Pull Request
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details
+MIT License — see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-- Built on [Claude Code](https://claude.com/claude-code)
-- Inspired by [GitHub SpecKit](https://github.com/github/speckit)
+- Built for [Claude Code](https://claude.ai/code)
 - Uses [Textual](https://github.com/Textualize/textual) for TUI
-- Implements Beads pattern for Git-friendly persistence
-
-## Support
-
-- Documentation: [docs/](docs/)
-- Issues: [GitHub Issues](https://github.com/yourusername/specflow/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/specflow/discussions)
+- Inspired by spec-driven development practices
