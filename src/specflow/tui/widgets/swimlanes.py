@@ -58,6 +58,10 @@ class TaskCard(Static, can_focus=True):
         Binding("enter", "select_task", "Open", show=False),
         Binding("e", "edit_task", "Edit", show=False),
         Binding("m", "move_task", "Move", show=False),
+        Binding("up", "focus_prev", "Previous", show=False),
+        Binding("down", "focus_next", "Next", show=False),
+        Binding("k", "focus_prev", "Previous", show=False),
+        Binding("j", "focus_next", "Next", show=False),
     ]
 
     class Selected(Message):
@@ -112,6 +116,40 @@ class TaskCard(Static, can_focus=True):
     def action_move_task(self) -> None:
         """Request task move."""
         self.post_message(self.MoveRequested(self._task_data))
+
+    def action_focus_prev(self) -> None:
+        """Focus the previous task card in the lane."""
+        try:
+            # Get all TaskCard siblings in the parent container
+            parent = self.parent
+            if parent is None:
+                return
+            cards = list(parent.query(TaskCard))
+            if not cards:
+                return
+            current_idx = cards.index(self)
+            if current_idx > 0:
+                cards[current_idx - 1].focus()
+                cards[current_idx - 1].scroll_visible()
+        except (ValueError, IndexError):
+            pass
+
+    def action_focus_next(self) -> None:
+        """Focus the next task card in the lane."""
+        try:
+            # Get all TaskCard siblings in the parent container
+            parent = self.parent
+            if parent is None:
+                return
+            cards = list(parent.query(TaskCard))
+            if not cards:
+                return
+            current_idx = cards.index(self)
+            if current_idx < len(cards) - 1:
+                cards[current_idx + 1].focus()
+                cards[current_idx + 1].scroll_visible()
+        except (ValueError, IndexError):
+            pass
 
 
 class SwimLane(Vertical, can_focus=True):
