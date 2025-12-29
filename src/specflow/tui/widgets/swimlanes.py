@@ -330,7 +330,6 @@ class TaskEditModal(ModalScreen):
     #task-edit-container {
         width: 80%;
         height: 80%;
-        max-height: 35;
         border: thick $warning;
         background: $surface;
     }
@@ -349,20 +348,22 @@ class TaskEditModal(ModalScreen):
     }
 
     #task-edit-title {
-        height: 3;
+        height: 5;
+        min-height: 3;
         margin-bottom: 1;
+        border: solid $primary;
     }
 
     #task-edit-description {
-        height: 1fr;
-        min-height: 10;
+        height: 100%;
+        min-height: 15;
+        border: solid $primary;
     }
 
     #task-edit-buttons {
-        height: 3;
+        height: 5;
         align: center middle;
-        padding: 0 1;
-        dock: bottom;
+        padding: 1;
     }
 
     #task-edit-buttons Button {
@@ -386,13 +387,18 @@ class TaskEditModal(ModalScreen):
                 id="task-edit-header"
             )
 
-            with Vertical(id="task-edit-content"):
+            with VerticalScroll(id="task-edit-content"):
                 yield Static("[b]Title[/b]")
-                yield TextArea(self._task_data.title, id="task-edit-title")
+                yield TextArea(
+                    self._task_data.title,
+                    id="task-edit-title",
+                    show_line_numbers=False
+                )
                 yield Static("[b]Description[/b]")
                 yield TextArea(
                     self._task_data.description or "",
-                    id="task-edit-description"
+                    id="task-edit-description",
+                    show_line_numbers=False
                 )
 
             with Horizontal(id="task-edit-buttons"):
