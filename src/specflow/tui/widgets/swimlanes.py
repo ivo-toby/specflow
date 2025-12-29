@@ -224,8 +224,8 @@ class TaskDetailModal(ModalScreen):
     }
 
     TaskDetailModal > Vertical {
-        width: 80%;
-        height: 80%;
+        width: 95%;
+        height: 95%;
         border: thick $primary;
         background: $surface;
         padding: 1 2;
@@ -251,7 +251,8 @@ class TaskDetailModal(ModalScreen):
     }
 
     TaskDetailModal #task-detail-description {
-        height: 10;
+        height: 1fr;
+        min-height: 10;
         width: 100%;
         border: solid $secondary;
         background: $surface-darken-1;
@@ -347,8 +348,8 @@ class TaskEditModal(ModalScreen):
     }
 
     TaskEditModal > Vertical {
-        width: 80%;
-        height: 80%;
+        width: 95%;
+        height: 95%;
         border: thick $warning;
         background: $surface;
         padding: 1 2;
