@@ -223,53 +223,70 @@ class TaskDetailModal(ModalScreen):
         align: center middle;
     }
 
-    #task-detail-container {
+    TaskDetailModal > Vertical {
         width: 80%;
         height: 80%;
-        max-height: 40;
         border: thick $primary;
         background: $surface;
+        padding: 1 2;
     }
 
-    #task-detail-header {
+    TaskDetailModal #task-detail-header {
         height: 3;
         background: $primary;
         padding: 1;
         text-style: bold;
     }
 
-    #task-detail-content {
+    TaskDetailModal #task-detail-content {
         height: 1fr;
-        padding: 1;
+        width: 100%;
+        margin: 1 0;
     }
 
-    #task-detail-description {
-        height: 8;
-        min-height: 5;
-        margin-bottom: 1;
+    TaskDetailModal .detail-label {
+        height: auto;
+        text-style: bold;
+        margin-top: 1;
     }
 
-    #task-detail-meta {
+    TaskDetailModal #task-detail-description {
+        height: 10;
+        width: 100%;
+        border: solid $secondary;
+        background: $surface-darken-1;
+    }
+
+    TaskDetailModal #task-detail-meta {
         height: auto;
         padding: 1;
         background: $surface-darken-1;
-        margin-bottom: 1;
+        margin-top: 1;
+        border: solid $secondary-darken-1;
     }
 
-    #task-detail-buttons {
-        height: 3;
+    TaskDetailModal #task-detail-logs {
+        height: auto;
+        max-height: 8;
+        margin-top: 1;
+    }
+
+    TaskDetailModal #task-detail-buttons {
+        height: 5;
+        width: 100%;
         align: center middle;
-        padding: 0 1;
         dock: bottom;
     }
 
-    #task-detail-buttons Button {
-        margin: 0 1;
+    TaskDetailModal #task-detail-buttons Button {
+        margin: 1 2;
+        min-width: 12;
     }
     """
 
     BINDINGS = [
         Binding("escape", "dismiss", "Close"),
+        Binding("e", "edit", "Edit"),
     ]
 
     def __init__(self, task_data: Task, execution_logs: list = None) -> None:
@@ -278,17 +295,16 @@ class TaskDetailModal(ModalScreen):
         super().__init__()
 
     def compose(self) -> ComposeResult:
-        with Container(id="task-detail-container"):
+        with Vertical():
             yield Static(
                 f"Task: {self._task_data.id} - {self._task_data.title}",
                 id="task-detail-header"
             )
 
             with VerticalScroll(id="task-detail-content"):
-                # Description
-                yield Static("[b]Description[/b]")
+                yield Static("Description:", classes="detail-label")
                 desc = self._task_data.description or "(No description)"
-                yield TextArea(desc, read_only=True, id="task-detail-description")
+                yield TextArea(desc, read_only=True, id="task-detail-description", show_line_numbers=False)
 
                 # Metadata
                 with Container(id="task-detail-meta"):
@@ -300,16 +316,19 @@ class TaskDetailModal(ModalScreen):
 
                 # Execution logs
                 if self._execution_logs:
-                    yield Static("[b]Execution History (last 5)[/b]")
-                    for log in self._execution_logs[-5:]:
-                        status = "[green]OK[/green]" if log.success else "[red]FAIL[/red]"
-                        yield Static(
-                            f"  {log.agent_type}: {log.action} {status}"
-                        )
+                    with Container(id="task-detail-logs"):
+                        yield Static("[b]Execution History (last 5)[/b]")
+                        for log in self._execution_logs[-5:]:
+                            status = "[green]OK[/green]" if log.success else "[red]FAIL[/red]"
+                            yield Static(f"  {log.agent_type}: {log.action} {status}")
 
             with Horizontal(id="task-detail-buttons"):
-                yield Button("Edit", variant="warning", id="btn-edit-detail")
-                yield Button("Close", variant="primary", id="btn-close-detail")
+                yield Button("Edit [e]", variant="warning", id="btn-edit-detail")
+                yield Button("Close [Esc]", variant="primary", id="btn-close-detail")
+
+    def action_edit(self) -> None:
+        """Edit the task."""
+        self.dismiss(self._task_data)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press."""
@@ -327,16 +346,12 @@ class TaskEditModal(ModalScreen):
         align: center middle;
     }
 
-    TaskEditModal > Container {
-        width: 90%;
-        height: 90%;
+    TaskEditModal > Vertical {
+        width: 80%;
+        height: 80%;
         border: thick $warning;
         background: $surface;
-        padding: 1;
-    }
-
-    TaskEditModal Static {
-        height: auto;
+        padding: 1 2;
     }
 
     TaskEditModal #task-edit-header {
@@ -345,36 +360,45 @@ class TaskEditModal(ModalScreen):
         color: $text;
         padding: 1;
         text-style: bold;
-        margin-bottom: 1;
     }
 
     TaskEditModal #task-edit-content {
         height: 1fr;
         width: 100%;
+        margin: 1 0;
     }
 
-    TaskEditModal #task-edit-title {
-        height: 5;
-        width: 100%;
-        margin-bottom: 1;
-        border: solid $primary;
-    }
-
-    TaskEditModal #task-edit-description {
-        height: 20;
-        width: 100%;
-        border: solid $primary;
-    }
-
-    TaskEditModal #task-edit-buttons {
-        height: 3;
-        width: 100%;
-        align: center middle;
+    TaskEditModal .edit-label {
+        height: auto;
+        text-style: bold;
         margin-top: 1;
     }
 
+    TaskEditModal #task-edit-title {
+        height: 3;
+        width: 100%;
+        border: solid $primary;
+        background: $surface-darken-1;
+    }
+
+    TaskEditModal #task-edit-description {
+        height: 1fr;
+        min-height: 10;
+        width: 100%;
+        border: solid $primary;
+        background: $surface-darken-1;
+    }
+
+    TaskEditModal #task-edit-buttons {
+        height: 5;
+        width: 100%;
+        align: center middle;
+        dock: bottom;
+    }
+
     TaskEditModal #task-edit-buttons Button {
-        margin: 0 2;
+        margin: 1 2;
+        min-width: 16;
     }
     """
 
@@ -388,26 +412,29 @@ class TaskEditModal(ModalScreen):
         super().__init__()
 
     def compose(self) -> ComposeResult:
-        with Container():
+        with Vertical():
             yield Static(
                 f"Edit Task: {self._task_data.id}",
                 id="task-edit-header"
             )
-            yield Static("[b]Title[/b]")
-            yield TextArea(
-                self._task_data.title,
-                id="task-edit-title",
-                show_line_numbers=False
-            )
-            yield Static("[b]Description[/b]")
-            yield TextArea(
-                self._task_data.description or "",
-                id="task-edit-description",
-                show_line_numbers=False
-            )
+
+            with VerticalScroll(id="task-edit-content"):
+                yield Static("Title:", classes="edit-label")
+                yield TextArea(
+                    self._task_data.title,
+                    id="task-edit-title",
+                    show_line_numbers=False
+                )
+                yield Static("Description:", classes="edit-label")
+                yield TextArea(
+                    self._task_data.description or "",
+                    id="task-edit-description",
+                    show_line_numbers=False
+                )
+
             with Horizontal(id="task-edit-buttons"):
-                yield Button("Save", variant="success", id="btn-save-edit")
-                yield Button("Cancel", variant="error", id="btn-cancel-edit")
+                yield Button("Save [Ctrl+S]", variant="success", id="btn-save-edit")
+                yield Button("Cancel [Esc]", variant="error", id="btn-cancel-edit")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press."""
