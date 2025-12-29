@@ -20,6 +20,22 @@ $ARGUMENTS - Spec ID to implement
 Tasks are read from and updated in the SQLite database.
 The TUI swimlane board shows real-time progress.
 
+## CRITICAL: Agent Registration
+
+**YOU MUST run these commands to update the TUI agent panel:**
+
+Before EACH agent phase, run:
+```bash
+specflow agent-start {TASK-ID} --type {coder|tester|reviewer|qa}
+```
+
+After EACH agent phase completes, run:
+```bash
+specflow agent-stop --task {TASK-ID}
+```
+
+This is NOT optional. The TUI relies on this for real-time status.
+
 ## Execution Flow
 
 1. **Load Tasks from Database**
@@ -34,65 +50,54 @@ The TUI swimlane board shows real-time progress.
    ready_tasks = db.get_ready_tasks(spec_id="<spec-id>")
    ```
 
-2. **Initialize Agent Pool**
-   - Max 6 concurrent agents
-   - Create worktrees for ready tasks
+2. **For Each Task:**
 
-3. **For Each Task (parallel where possible):**
-
-   a. **Register Agent & Mark as IMPLEMENTING**
+   ### CODER PHASE
    ```bash
-   # Register agent in TUI (shows in agent panel)
    specflow agent-start {task-id} --type coder
    ```
    ```python
    db.update_task_status(task.id, TaskStatus.IMPLEMENTING)
    ```
-
-   b. **Create Worktree**
-   - Path: `.worktrees/{task-id}`
-
-   c. **Execute with @specflow-coder**
-   - Implement the task requirements
-   - Follow spec and plan guidelines
-
-   d. **Switch to Tester Agent & Mark as TESTING**
+   - Create worktree: `.worktrees/{task-id}`
+   - Execute with @specflow-coder
+   - Implement task requirements
    ```bash
    specflow agent-stop --task {task-id}
+   ```
+
+   ### TESTER PHASE
+   ```bash
    specflow agent-start {task-id} --type tester
    ```
    ```python
    db.update_task_status(task.id, TaskStatus.TESTING)
    ```
-
-   e. **Execute with @specflow-tester**
+   - Execute with @specflow-tester
    - Write and run tests
-   - Ensure coverage
-
-   f. **Switch to Reviewer Agent & Mark as REVIEWING**
    ```bash
    specflow agent-stop --task {task-id}
+   ```
+
+   ### REVIEWER PHASE
+   ```bash
    specflow agent-start {task-id} --type reviewer
    ```
    ```python
    db.update_task_status(task.id, TaskStatus.REVIEWING)
    ```
-
-   g. **Execute with @specflow-reviewer**
+   - Execute with @specflow-reviewer
    - Review code quality
-   - Check spec compliance
-
-   h. **Switch to QA Agent**
    ```bash
    specflow agent-stop --task {task-id}
-   specflow agent-start {task-id} --type qa
    ```
 
-   i. **Execute with @specflow-qa**
-   - Final validation
-   - Loop until QA approves (max 10 iterations)
-
-   j. **Deregister Agent & Mark as DONE**
+   ### QA PHASE
+   ```bash
+   specflow agent-start {task-id} --type qa
+   ```
+   - Execute with @specflow-qa
+   - Final validation (max 10 iterations)
    ```bash
    specflow agent-stop --task {task-id}
    ```
@@ -100,7 +105,7 @@ The TUI swimlane board shows real-time progress.
    db.update_task_status(task.id, TaskStatus.DONE)
    ```
 
-   k. **Check for Unblocked Tasks**
+3. **Check for Unblocked Tasks**
    - Query `db.get_ready_tasks()` for newly available tasks
 
 4. **Log Execution**
