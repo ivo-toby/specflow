@@ -40,6 +40,10 @@ class TaskCard(Static, can_focus=True):
         opacity: 0.6;
     }
 
+    TaskCard.followup {
+        border-left: thick $warning;
+    }
+
     TaskCard .task-id {
         text-style: bold;
         color: $text;
@@ -51,6 +55,10 @@ class TaskCard(Static, can_focus=True):
 
     TaskCard .task-meta {
         color: $text-disabled;
+    }
+
+    TaskCard .task-category {
+        color: $warning;
     }
     """
 
@@ -88,18 +96,39 @@ class TaskCard(Static, can_focus=True):
     def __init__(self, task_data: Task, is_blocked: bool = False) -> None:
         self._task_data = task_data
         self._is_blocked = is_blocked
+        self._is_followup = task_data.metadata.get("is_followup", False)
+        self._category = task_data.metadata.get("category", "")
         super().__init__()
         if is_blocked:
             self.add_class("blocked")
+        if self._is_followup:
+            self.add_class("followup")
 
     def compose(self) -> ComposeResult:
         priority_icons = {1: "[P1]", 2: "[P2]", 3: "[P3]"}
         priority = priority_icons.get(self._task_data.priority, "")
         blocked_icon = " [dim][blocked][/dim]" if self._is_blocked else ""
 
+        # Show category badge for follow-up tasks
+        category_badge = ""
+        if self._is_followup and self._category:
+            category_icons = {
+                "placeholder": "[yellow]TODO[/yellow]",
+                "tech-debt": "[red]DEBT[/red]",
+                "refactor": "[cyan]REFACTOR[/cyan]",
+                "test-gap": "[magenta]TEST[/magenta]",
+                "edge-case": "[orange1]EDGE[/orange1]",
+                "doc": "[blue]DOC[/blue]",
+                "followup": "[yellow]FOLLOWUP[/yellow]",
+            }
+            category_badge = category_icons.get(self._category, f"[{self._category}]")
+
         yield Static(f"[b]{self._task_data.id}[/b]", classes="task-id")
         yield Static(self._task_data.title[:30], classes="task-title")
-        yield Static(f"{priority}{blocked_icon}", classes="task-meta")
+        if category_badge:
+            yield Static(f"{priority} {category_badge}{blocked_icon}", classes="task-meta")
+        else:
+            yield Static(f"{priority}{blocked_icon}", classes="task-meta")
 
     def on_click(self) -> None:
         """Handle click on task card."""
@@ -341,6 +370,17 @@ class TaskDetailModal(ModalScreen):
                 deps = ", ".join(self._task_data.dependencies) or "None"
                 yield Static(f"[b]Dependencies:[/b] {deps}")
                 yield Static(f"[b]Assignee:[/b] {self._task_data.assignee or 'Unassigned'}")
+
+                # Show follow-up task info if applicable
+                if self._task_data.metadata.get("is_followup"):
+                    category = self._task_data.metadata.get("category", "followup")
+                    parent = self._task_data.metadata.get("parent_task", "")
+                    created_by = self._task_data.metadata.get("created_by_agent", "")
+                    yield Static(f"[b]Category:[/b] [yellow]{category}[/yellow]")
+                    if parent:
+                        yield Static(f"[b]Parent Task:[/b] {parent}")
+                    if created_by:
+                        yield Static(f"[b]Created By:[/b] {created_by} agent")
 
             # Execution logs
             if self._execution_logs:

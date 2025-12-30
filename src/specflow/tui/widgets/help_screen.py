@@ -106,12 +106,27 @@ specflow spec-get ID   # Get spec details
 
 # Tasks
 specflow list-tasks    # List all tasks
+specflow task-create   # Create a new task
+specflow task-followup # Create follow-up task (agent use)
 specflow execute       # Run autonomous execution
 
 # Worktrees
 specflow worktree-list # List active worktrees
 specflow merge-task ID # Merge completed task
 ```
+
+---
+
+## Follow-up Tasks
+
+Agents automatically create follow-up tasks for:
+- **PLACEHOLDER-xxx**: TODO items in code
+- **TECH-DEBT-xxx**: Technical debt
+- **REFACTOR-xxx**: Refactoring opportunities
+- **TEST-GAP-xxx**: Missing test coverage
+- **EDGE-CASE-xxx**: Unhandled edge cases
+
+Follow-up tasks appear with colored badges in the task board.
 
 ---
 

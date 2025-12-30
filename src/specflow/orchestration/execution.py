@@ -228,6 +228,36 @@ You are working in: {worktree_path}
 ## Implementation Plan
 {plan_content if plan_content else "No implementation plan found."}
 
+## Creating Follow-up Tasks
+
+When you encounter work that should be done but is outside your current task scope,
+you may create a follow-up task. But FIRST check if a similar task already exists:
+
+```bash
+# Step 1: ALWAYS check existing tasks first
+specflow list-tasks --spec {task.spec_id} --json
+
+# Step 2: Only if no similar task exists, create a new one
+specflow task-followup <CATEGORY>-<NUMBER> "{task.spec_id}" "Task title" \\
+    --parent {task.id} \\
+    --priority <2|3> \\
+    --description "Detailed description of what needs to be done"
+```
+
+**Categories for follow-up tasks:**
+- `PLACEHOLDER-xxx`: Code you marked with TODO/NotImplementedError
+- `TECH-DEBT-xxx`: Technical debt you noticed
+- `REFACTOR-xxx`: Code that should be refactored
+- `TEST-GAP-xxx`: Missing test coverage
+- `EDGE-CASE-xxx`: Edge cases that need handling
+- `DOC-xxx`: Documentation gaps
+
+**IMPORTANT:**
+- Before creating a task, review the existing task list to avoid duplicates.
+- If a similar task exists, skip creation or note it in your output.
+- Always create tasks rather than leaving undocumented TODOs in code.
+- Use priority 2 for important issues, priority 3 for nice-to-have improvements.
+
 ## Your Task
 """
 

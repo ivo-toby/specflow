@@ -184,6 +184,30 @@ def main() -> int:
         "--assignee", default="coder", help="Agent type to assign (default: coder)"
     )
 
+    # task-followup command (for agents to create follow-up tasks)
+    task_followup_parser = subparsers.add_parser(
+        "task-followup",
+        help="Create a follow-up task (used by agents during implementation)"
+    )
+    task_followup_parser.add_argument(
+        "task_id",
+        help="Unique task ID with category prefix (e.g., TECH-DEBT-001, PLACEHOLDER-002)"
+    )
+    task_followup_parser.add_argument("spec_id", help="Spec ID this task belongs to")
+    task_followup_parser.add_argument("title", help="Task title")
+    task_followup_parser.add_argument("--description", default="", help="Task description")
+    task_followup_parser.add_argument(
+        "--priority", type=int, default=3, choices=[1, 2, 3], help="Priority (default: 3=low)"
+    )
+    task_followup_parser.add_argument(
+        "--parent", help="Parent task ID that spawned this follow-up"
+    )
+    task_followup_parser.add_argument(
+        "--category",
+        choices=["placeholder", "tech-debt", "refactor", "test-gap", "edge-case", "doc"],
+        help="Category of follow-up (auto-detected from task_id prefix if not specified)"
+    )
+
     # worktree-create command
     worktree_create_parser = subparsers.add_parser(
         "worktree-create", help="Create a git worktree for a task"
@@ -267,6 +291,17 @@ def main() -> int:
             args.priority,
             args.dependencies,
             args.assignee,
+            args.json,
+        )
+    elif args.command == "task-followup":
+        return cmd_task_followup(
+            args.task_id,
+            args.spec_id,
+            args.title,
+            args.description,
+            args.priority,
+            args.parent,
+            args.category,
             args.json,
         )
     elif args.command == "worktree-create":
@@ -997,6 +1032,116 @@ def cmd_task_create(
             print(f"  Priority: {priority}")
             if deps_list:
                 print(f"  Dependencies: {', '.join(deps_list)}")
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_task_followup(
+    task_id: str,
+    spec_id: str,
+    title: str,
+    description: str = "",
+    priority: int = 3,
+    parent: str | None = None,
+    category: str | None = None,
+    json_output: bool = False,
+) -> int:
+    """Create a follow-up task (used by agents during implementation)."""
+    try:
+        project = Project.load()
+
+        # Check if task already exists
+        existing = project.db.get_task(task_id)
+        if existing:
+            if json_output:
+                result = {
+                    "success": False,
+                    "error": f"Task already exists: {task_id}",
+                    "existing_task": existing.to_dict(),
+                }
+                print(json.dumps(result, indent=2))
+            else:
+                print(f"Task already exists: {task_id}", file=sys.stderr)
+            return 1
+
+        # Auto-detect category from task_id prefix if not specified
+        if category is None:
+            task_id_upper = task_id.upper()
+            if task_id_upper.startswith("PLACEHOLDER"):
+                category = "placeholder"
+            elif task_id_upper.startswith("TECH-DEBT"):
+                category = "tech-debt"
+            elif task_id_upper.startswith("REFACTOR"):
+                category = "refactor"
+            elif task_id_upper.startswith("TEST-GAP"):
+                category = "test-gap"
+            elif task_id_upper.startswith("EDGE-CASE"):
+                category = "edge-case"
+            elif task_id_upper.startswith("DOC"):
+                category = "doc"
+            else:
+                category = "followup"  # Generic fallback
+
+        # Build metadata for tracking
+        metadata = {
+            "is_followup": True,
+            "category": category,
+        }
+        if parent:
+            metadata["parent_task"] = parent
+            # Try to get parent task to extract agent info
+            parent_task = project.db.get_task(parent)
+            if parent_task and parent_task.assignee:
+                metadata["created_by_agent"] = parent_task.assignee
+
+        # Create the follow-up task
+        task = Task(
+            id=task_id,
+            spec_id=spec_id,
+            title=title,
+            description=description,
+            status=TaskStatus.TODO,
+            priority=priority,
+            dependencies=[parent] if parent else [],  # Depend on parent task
+            assignee="coder",  # Default assignee for follow-up tasks
+            worktree=None,
+            iteration=0,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            metadata=metadata,
+        )
+        project.db.create_task(task)
+
+        if json_output:
+            result = {
+                "success": True,
+                "task_id": task_id,
+                "category": category,
+                "parent": parent,
+                "task": task.to_dict(),
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Created follow-up task: {task_id}")
+            print(f"  Category: {category}")
+            print(f"  Title: {title}")
+            print(f"  Spec: {spec_id}")
+            print(f"  Priority: {priority}")
+            if parent:
+                print(f"  Parent: {parent}")
         return 0
     except FileNotFoundError:
         if json_output:

@@ -92,108 +92,40 @@ This document tracks all placeholders, TODOs, and incomplete implementations in 
 
 ---
 
-### 5. Agent-Created Follow-up Tasks
+### ~~5. Agent-Created Follow-up Tasks~~ COMPLETED
 
 **File:** `src/specflow/orchestration/execution.py:201-287`
-**Status:** Not Started
-**Description:** Agents should create follow-up tasks when they encounter technical debt, placeholders, or improvement opportunities during implementation.
+**Status:** Completed
+**Description:** Agents now create follow-up tasks when they encounter technical debt, placeholders, or improvement opportunities during implementation.
 
-**Problem:**
-During implementation, agents often:
-- Create placeholder code (`# TODO`, `raise NotImplementedError`)
-- Notice technical debt in surrounding code
-- Identify refactoring opportunities
-- Find missing test coverage
-- Discover edge cases not in the spec
-
-Currently this knowledge is lost when the agent finishes its task.
-
-**Solution:**
-Instruct agents to create follow-up tasks via CLI when they encounter these situations.
+**Implementation:**
+- Updated `_build_agent_prompt()` with follow-up task instructions for all agents
+- Added `specflow task-followup` CLI command with metadata tracking
+- Task metadata includes: `is_followup`, `category`, `parent_task`, `created_by_agent`
+- TUI swimlanes show colored category badges for follow-up tasks
+- TaskDetailModal displays parent task and category info
 
 **Task Categories:**
 
-| Prefix | Category | Created By | Priority |
-|--------|----------|------------|----------|
-| `PLACEHOLDER-` | Placeholder implementations | Coder | 2 |
-| `TECH-DEBT-` | Technical debt | Coder, Reviewer | 3 |
-| `REFACTOR-` | Refactoring opportunities | Reviewer | 3 |
-| `TEST-GAP-` | Missing test coverage | Tester | 2 |
-| `EDGE-CASE-` | Unhandled edge cases | Tester, QA | 2 |
-| `DOC-` | Documentation gaps | Reviewer | 3 |
+| Prefix | Badge Color | Description |
+|--------|-------------|-------------|
+| `PLACEHOLDER-` | Yellow (TODO) | Placeholder implementations |
+| `TECH-DEBT-` | Red (DEBT) | Technical debt |
+| `REFACTOR-` | Cyan (REFACTOR) | Refactoring opportunities |
+| `TEST-GAP-` | Magenta (TEST) | Missing test coverage |
+| `EDGE-CASE-` | Orange (EDGE) | Unhandled edge cases |
+| `DOC-` | Blue (DOC) | Documentation gaps |
 
-**Implementation:**
-
-1. **Update agent prompts** in `_build_agent_prompt()`:
-
-```python
-# Add to all agent prompts:
-prompt += """
-## Creating Follow-up Tasks
-
-When you encounter work that should be done but is outside your current task scope,
-you may create a follow-up task. But FIRST check if a similar task already exists:
-
+**CLI Usage:**
 ```bash
-# Step 1: ALWAYS check existing tasks first
-specflow list-tasks --spec {SPEC-ID} --json
+# Check existing tasks first
+specflow list-tasks --spec my-feature --json
 
-# Step 2: Only if no similar task exists, create a new one
-specflow task-create {CATEGORY}-{NUMBER} {SPEC-ID} "Task title" \\
-    --priority {2|3} \\
-    --description "Detailed description of what needs to be done"
-```
-
-IMPORTANT: Before creating a task, review the existing task list to avoid duplicates.
-If a similar task exists, you can skip creation or add a comment to the existing task.
-
-Categories:
-- PLACEHOLDER-xxx: Code you marked with TODO/NotImplementedError
-- TECH-DEBT-xxx: Technical debt you noticed
-- REFACTOR-xxx: Code that should be refactored
-- TEST-GAP-xxx: Missing test coverage
-- EDGE-CASE-xxx: Edge cases that need handling
-
-Always create tasks rather than leaving undocumented TODOs in code.
-"""
-```
-
-2. **Track task origin** - Add metadata to tasks:
-
-```python
-# In task creation, add metadata:
-task.metadata["created_by_agent"] = agent_type.value
-task.metadata["parent_task"] = current_task_id
-task.metadata["category"] = "tech-debt"  # or placeholder, refactor, etc.
-```
-
-3. **Add CLI support** for easier task creation:
-
-```bash
-# New command for agents:
-specflow task-followup TECH-DEBT-001 "Refactor database connection pooling" \
+# Create follow-up task
+specflow task-followup TECH-DEBT-001 my-feature "Refactor database pooling" \
     --parent TASK-005 \
-    --category tech-debt
-```
-
-4. **TUI integration** - Show follow-up tasks with special indicator:
-- Badge or icon for agent-created tasks
-- Filter to show only follow-up tasks
-- Link to parent task
-
-**Benefits:**
-- Nothing falls through the cracks
-- Technical debt is tracked, not ignored
-- Creates a backlog of improvements
-- Agents become more thorough knowing they can defer work
-- Human oversight of what agents flag as needing attention
-
-**Example agent output:**
-```
-Implementing user authentication...
-Found: Database connection not using pooling (tech debt)
-Creating follow-up task: TECH-DEBT-042 "Add connection pooling to database module"
-Continuing with current task...
+    --priority 3 \
+    --description "Add connection pooling to database module"
 ```
 
 ---
@@ -305,6 +237,7 @@ These were previously placeholders but are now implemented:
 - [x] AI File Regeneration (Tier 3 Merge) - Claude merges complete file versions
 - [x] TUI New Spec Dialog - Modal for creating specs with Ctrl+N
 - [x] TUI Help Screen - Keyboard shortcuts and quick start guide with ?
+- [x] Agent-Created Follow-up Tasks - Agents create tasks for TODOs, tech debt, etc.
 
 ---
 
@@ -318,4 +251,4 @@ These were previously placeholders but are now implemented:
 
 ---
 
-*Last updated: 2025-12-29*
+*Last updated: 2025-12-30*
