@@ -55,27 +55,21 @@ This document tracks all placeholders, TODOs, and incomplete implementations in 
 
 ---
 
-### 3. TUI New Spec Dialog
+### ~~3. TUI New Spec Dialog~~ COMPLETED
 
-**File:** `src/specflow/tui/app.py:193-196`
-**Status:** Not Started
-**Description:** The "New Spec" action (`n` keybind) does nothing.
+**File:** `src/specflow/tui/widgets/new_spec_screen.py`
+**Status:** Completed
+**Description:** Modal dialog for creating new specifications.
 
-**Current behavior:**
-- `pass` statement, no action
+**Implementation:**
+- Created `NewSpecScreen` modal dialog
+- Input fields: Spec ID, Title, Source Type (None/BRD/PRD)
+- Validates required fields and checks for duplicates
+- Creates spec in database with DRAFT status
+- Creates spec directory with initial file (brd.md, prd.md, or spec.md)
+- Auto-refreshes specs panel and loads new spec in editor
 
-**Needed:**
-- Create modal dialog for spec creation
-- Fields: ID, title, source type (BRD/PRD)
-- Call `project.db.create_spec()` on submit
-- Refresh specs panel
-
-```python
-def action_new_spec(self) -> None:
-    """Create a new specification."""
-    # TODO: Implement new spec dialog
-    pass
-```
+**Keybinding:** `Ctrl+N` to open dialog
 
 ---
 
@@ -314,6 +308,7 @@ These were previously placeholders but are now implemented:
 - [x] BRD/PRD tabs in spec editor
 - [x] AI Conflict Resolution (Tier 2 Merge) - Claude resolves git conflicts
 - [x] AI File Regeneration (Tier 3 Merge) - Claude merges complete file versions
+- [x] TUI New Spec Dialog - Modal for creating specs with Ctrl+N
 
 ---
 

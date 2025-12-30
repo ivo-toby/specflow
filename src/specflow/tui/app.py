@@ -11,6 +11,7 @@ from specflow.core.project import Project
 from specflow.tui.widgets.agents import AgentsPanel
 from specflow.tui.widgets.config_screen import ConfigScreen
 from specflow.tui.widgets.dependency_graph import DependencyGraph
+from specflow.tui.widgets.new_spec_screen import NewSpecScreen
 from specflow.tui.widgets.spec_editor import SpecEditor
 from specflow.tui.widgets.specs import SpecSelected, SpecsPanel
 from specflow.tui.widgets.swimlanes import SwimlaneScreen
@@ -192,8 +193,26 @@ class SpecFlowApp(App):
 
     def action_new_spec(self) -> None:
         """Create a new specification."""
-        # TODO: Implement new spec dialog
-        pass
+        if not self.project:
+            self.notify("No project loaded", severity="warning")
+            return
+
+        def on_dismiss(spec_id: str | None) -> None:
+            """Handle dialog dismiss."""
+            if spec_id:
+                # Refresh specs panel
+                specs_panel = self.query_one("#specs-panel", SpecsPanel)
+                specs_panel.refresh_specs()
+
+                # Load the new spec in editor
+                editor = self.query_one("#spec-editor", SpecEditor)
+                editor.load_spec(spec_id)
+
+                # Load dependency graph
+                graph = self.query_one("#dependency-graph", DependencyGraph)
+                graph.load_spec(spec_id)
+
+        self.push_screen(NewSpecScreen(), on_dismiss)
 
     def action_save_spec(self) -> None:
         """Save the current spec editor tab."""
