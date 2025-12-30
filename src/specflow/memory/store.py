@@ -101,19 +101,26 @@ class MemoryStore:
 
         return results[:limit]
 
-    def extract_from_text(self, text: str, source: str) -> list[Entity]:
+    def extract_from_text(self, text: str, source: str, spec_id: str | None = None) -> list[Entity]:
         """
         Extract entities from text.
 
-        This is a simple implementation. In a production system,
-        you might use NLP or LLM for better extraction.
+        Extracts:
+        - File references
+        - Decisions and choices
+        - Patterns and approaches
+        - Technical notes
+        - Dependencies
         """
         entities = []
-
-        # Extract file references
         import re
 
-        file_pattern = r"(?:^|\s)([\w\/\-\.]+\.(py|js|ts|md|json|yaml|yml))(?:\s|$)"
+        base_context = {"source": source}
+        if spec_id:
+            base_context["spec_id"] = spec_id
+
+        # Extract file references
+        file_pattern = r"(?:^|\s)([\w\/\-\.]+\.(py|js|ts|tsx|md|json|yaml|yml|toml|sh))(?:\s|$|:|\))"
         for match in re.finditer(file_pattern, text, re.IGNORECASE):
             file_path = match.group(1)
             entity_id = f"file:{file_path}"
@@ -124,7 +131,7 @@ class MemoryStore:
                     type="file",
                     name=file_path,
                     description=f"File referenced in {source}",
-                    context={"source": source},
+                    context=base_context.copy(),
                     created_at=datetime.now(),
                     updated_at=datetime.now(),
                 )
@@ -132,51 +139,183 @@ class MemoryStore:
                 self.add_entity(entity)
 
         # Extract decisions (lines starting with "Decision:", "We decided", etc.)
-        decision_pattern = r"(?:Decision|We decided|Chosen approach):\s*(.+)"
+        decision_pattern = r"(?:Decision|We decided|Chosen approach|Using|Implementing with):\s*(.+?)(?:\n|$)"
         for match in re.finditer(decision_pattern, text, re.IGNORECASE):
             decision = match.group(1).strip()
-            entity_id = f"decision:{abs(hash(decision))}"
+            if len(decision) > 10:  # Skip very short matches
+                entity_id = f"decision:{abs(hash(decision)) % 100000}"
 
-            if entity_id not in self.entities:
-                entity = Entity(
-                    id=entity_id,
-                    type="decision",
-                    name=decision[:50],
-                    description=decision,
-                    context={"source": source},
-                    created_at=datetime.now(),
-                    updated_at=datetime.now(),
-                    relevance_score=0.9,
-                )
-                entities.append(entity)
-                self.add_entity(entity)
+                if entity_id not in self.entities:
+                    entity = Entity(
+                        id=entity_id,
+                        type="decision",
+                        name=decision[:50],
+                        description=decision,
+                        context=base_context.copy(),
+                        created_at=datetime.now(),
+                        updated_at=datetime.now(),
+                        relevance_score=0.9,
+                    )
+                    entities.append(entity)
+                    self.add_entity(entity)
+
+        # Extract patterns (architectural patterns, design patterns)
+        pattern_indicators = [
+            r"(?:pattern|approach|architecture):\s*(.+?)(?:\n|$)",
+            r"(?:using|implemented)\s+(singleton|factory|observer|decorator|adapter|facade|repository)\s+pattern",
+            r"(?:following|using)\s+(mvc|mvvm|clean architecture|hexagonal|layered)\s+(?:pattern|architecture)",
+        ]
+        for pattern in pattern_indicators:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                pattern_desc = match.group(1).strip() if match.lastindex else match.group(0).strip()
+                entity_id = f"pattern:{abs(hash(pattern_desc)) % 100000}"
+
+                if entity_id not in self.entities and len(pattern_desc) > 5:
+                    entity = Entity(
+                        id=entity_id,
+                        type="pattern",
+                        name=pattern_desc[:50],
+                        description=pattern_desc,
+                        context=base_context.copy(),
+                        created_at=datetime.now(),
+                        updated_at=datetime.now(),
+                        relevance_score=0.8,
+                    )
+                    entities.append(entity)
+                    self.add_entity(entity)
+
+        # Extract dependencies (package names, libraries)
+        dependency_patterns = [
+            r"(?:install|pip install|npm install|using)\s+([\w\-]+)",
+            r"(?:import|from)\s+([\w\.]+)",
+            r"(?:depends on|requires)\s+([\w\-\.]+)",
+        ]
+        for pattern in dependency_patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                dep = match.group(1).strip()
+                # Skip common Python builtins and short names
+                if len(dep) > 2 and dep not in ["os", "re", "sys", "json", "from", "import"]:
+                    entity_id = f"dependency:{dep}"
+
+                    if entity_id not in self.entities:
+                        entity = Entity(
+                            id=entity_id,
+                            type="dependency",
+                            name=dep,
+                            description=f"Dependency: {dep}",
+                            context=base_context.copy(),
+                            created_at=datetime.now(),
+                            updated_at=datetime.now(),
+                            relevance_score=0.6,
+                        )
+                        entities.append(entity)
+                        self.add_entity(entity)
+
+        # Extract technical notes (TODO, FIXME, NOTE, IMPORTANT)
+        note_pattern = r"(?:TODO|FIXME|NOTE|IMPORTANT|WARNING):\s*(.+?)(?:\n|$)"
+        for match in re.finditer(note_pattern, text, re.IGNORECASE):
+            note = match.group(1).strip()
+            if len(note) > 10:
+                entity_id = f"note:{abs(hash(note)) % 100000}"
+
+                if entity_id not in self.entities:
+                    entity = Entity(
+                        id=entity_id,
+                        type="note",
+                        name=note[:50],
+                        description=note,
+                        context=base_context.copy(),
+                        created_at=datetime.now(),
+                        updated_at=datetime.now(),
+                        relevance_score=0.7,
+                    )
+                    entities.append(entity)
+                    self.add_entity(entity)
 
         return entities
 
     def get_context_for_spec(self, spec_id: str) -> str:
         """Get relevant context for a specification."""
-        # Find entities related to this spec
-        entities = self.search_entities(limit=20)
+        # Find entities related to this spec (prioritize spec-specific, then general)
+        spec_entities = [
+            e for e in self.entities.values()
+            if e.context.get("spec_id") == spec_id
+        ]
+        general_entities = [
+            e for e in self.entities.values()
+            if e.context.get("spec_id") is None
+        ]
+
+        # Combine: spec-specific first, then general (sorted by relevance)
+        entities = sorted(spec_entities, key=lambda e: e.relevance_score, reverse=True)
+        entities += sorted(general_entities, key=lambda e: e.relevance_score, reverse=True)
 
         if not entities:
-            return "No relevant context found in memory."
+            return ""  # Return empty string if no context
 
-        context = "# Relevant Context from Memory\n\n"
+        context = "## Relevant Context from Memory\n\n"
 
         # Group by type
         by_type: dict[str, list[Entity]] = {}
-        for entity in entities:
+        for entity in entities[:30]:  # Limit total entities
             if entity.type not in by_type:
                 by_type[entity.type] = []
             by_type[entity.type].append(entity)
 
+        # Order types by importance
+        type_order = ["decision", "pattern", "note", "file", "dependency"]
+        for entity_type in type_order:
+            if entity_type in by_type:
+                type_entities = by_type[entity_type]
+                context += f"### {entity_type.capitalize()}s\n"
+                for entity in type_entities[:5]:  # Top 5 per type
+                    context += f"- **{entity.name}**: {entity.description}\n"
+                context += "\n"
+
+        # Add any remaining types
         for entity_type, type_entities in by_type.items():
-            context += f"## {entity_type.capitalize()}s\n\n"
-            for entity in type_entities[:5]:  # Top 5 per type
-                context += f"- **{entity.name}**: {entity.description}\n"
-            context += "\n"
+            if entity_type not in type_order:
+                context += f"### {entity_type.capitalize()}s\n"
+                for entity in type_entities[:5]:
+                    context += f"- **{entity.name}**: {entity.description}\n"
+                context += "\n"
 
         return context
+
+    def get_entities_for_spec(self, spec_id: str) -> list[Entity]:
+        """Get all entities associated with a specific spec."""
+        return [
+            e for e in self.entities.values()
+            if e.context.get("spec_id") == spec_id
+        ]
+
+    def add_memory(
+        self,
+        entity_type: str,
+        name: str,
+        description: str,
+        spec_id: str | None = None,
+        relevance: float = 1.0,
+    ) -> Entity:
+        """Convenience method to add a memory entry."""
+        entity_id = f"{entity_type}:{abs(hash(name + description)) % 100000}"
+
+        context = {}
+        if spec_id:
+            context["spec_id"] = spec_id
+
+        entity = Entity(
+            id=entity_id,
+            type=entity_type,
+            name=name[:50],
+            description=description,
+            context=context,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            relevance_score=relevance,
+        )
+        self.add_entity(entity)
+        return entity
 
     def cleanup_old_entities(self, days: int = 90) -> int:
         """Remove entities older than specified days."""

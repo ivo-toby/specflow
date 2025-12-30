@@ -8,6 +8,7 @@ from pathlib import Path
 from specflow.core.config import Config
 from specflow.core.database import Database, Task, TaskStatus
 from specflow.core.sync import JsonlSync
+from specflow.memory.store import MemoryStore
 
 
 class Project:
@@ -19,6 +20,7 @@ class Project:
         self.config = config
         self.db = db
         self.sync = JsonlSync(db, root / ".specflow" / "specs.jsonl")
+        self.memory = MemoryStore(root / ".specflow" / "memory")
 
     @classmethod
     def init(cls, path: Path, update_templates: bool = False) -> "Project":

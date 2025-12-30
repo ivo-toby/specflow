@@ -113,6 +113,13 @@ specflow execute       # Run autonomous execution
 # Worktrees
 specflow worktree-list # List active worktrees
 specflow merge-task ID # Merge completed task
+
+# Memory
+specflow memory-stats   # Show memory statistics
+specflow memory-list    # List memory entries
+specflow memory-search  # Search memory by keyword
+specflow memory-add     # Add a memory entry
+specflow memory-cleanup # Clean up old entries
 ```
 
 ---

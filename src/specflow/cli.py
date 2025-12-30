@@ -208,6 +208,55 @@ def main() -> int:
         help="Category of follow-up (auto-detected from task_id prefix if not specified)"
     )
 
+    # memory-stats command
+    subparsers.add_parser("memory-stats", help="Show memory store statistics")
+
+    # memory-list command
+    memory_list_parser = subparsers.add_parser("memory-list", help="List memory entities")
+    memory_list_parser.add_argument(
+        "--type",
+        choices=["file", "decision", "pattern", "dependency", "note"],
+        help="Filter by entity type",
+    )
+    memory_list_parser.add_argument("--spec", help="Filter by spec ID")
+    memory_list_parser.add_argument(
+        "--limit", type=int, default=20, help="Maximum number of results (default: 20)"
+    )
+
+    # memory-search command
+    memory_search_parser = subparsers.add_parser("memory-search", help="Search memory")
+    memory_search_parser.add_argument("keyword", help="Keyword to search for")
+    memory_search_parser.add_argument(
+        "--type",
+        choices=["file", "decision", "pattern", "dependency", "note"],
+        help="Filter by entity type",
+    )
+    memory_search_parser.add_argument(
+        "--limit", type=int, default=10, help="Maximum results (default: 10)"
+    )
+
+    # memory-add command
+    memory_add_parser = subparsers.add_parser("memory-add", help="Add a memory entry")
+    memory_add_parser.add_argument(
+        "type",
+        choices=["decision", "pattern", "note", "dependency"],
+        help="Type of memory entry",
+    )
+    memory_add_parser.add_argument("name", help="Short name/title")
+    memory_add_parser.add_argument("description", help="Full description")
+    memory_add_parser.add_argument("--spec", help="Associate with a spec ID")
+    memory_add_parser.add_argument(
+        "--relevance", type=float, default=1.0, help="Relevance score 0-1 (default: 1.0)"
+    )
+
+    # memory-cleanup command
+    memory_cleanup_parser = subparsers.add_parser(
+        "memory-cleanup", help="Clean up old memory entries"
+    )
+    memory_cleanup_parser.add_argument(
+        "--days", type=int, default=90, help="Remove entries older than N days (default: 90)"
+    )
+
     # worktree-create command
     worktree_create_parser = subparsers.add_parser(
         "worktree-create", help="Create a git worktree for a task"
@@ -304,6 +353,16 @@ def main() -> int:
             args.category,
             args.json,
         )
+    elif args.command == "memory-stats":
+        return cmd_memory_stats(args.json)
+    elif args.command == "memory-list":
+        return cmd_memory_list(args.type, args.spec, args.limit, args.json)
+    elif args.command == "memory-search":
+        return cmd_memory_search(args.keyword, args.type, args.limit, args.json)
+    elif args.command == "memory-add":
+        return cmd_memory_add(args.type, args.name, args.description, args.spec, args.relevance, args.json)
+    elif args.command == "memory-cleanup":
+        return cmd_memory_cleanup(args.days, args.json)
     elif args.command == "worktree-create":
         return cmd_worktree_create(args.task_id, args.base, args.json)
     elif args.command == "worktree-remove":
@@ -1142,6 +1201,231 @@ def cmd_task_followup(
             print(f"  Priority: {priority}")
             if parent:
                 print(f"  Parent: {parent}")
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_memory_stats(json_output: bool = False) -> int:
+    """Show memory store statistics."""
+    try:
+        project = Project.load()
+        stats = project.memory.get_stats()
+
+        if json_output:
+            result = {"success": True, **stats}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Memory Store Statistics")
+            print(f"  Total entities: {stats['total_entities']}")
+            if stats["by_type"]:
+                print("\n  By type:")
+                for entity_type, count in sorted(stats["by_type"].items()):
+                    print(f"    {entity_type}: {count}")
+            if stats["oldest_entity"]:
+                print(f"\n  Oldest: {stats['oldest_entity']}")
+                print(f"  Newest: {stats['newest_entity']}")
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_memory_list(
+    entity_type: str | None = None,
+    spec_id: str | None = None,
+    limit: int = 20,
+    json_output: bool = False,
+) -> int:
+    """List memory entities."""
+    try:
+        project = Project.load()
+
+        if spec_id:
+            entities = project.memory.get_entities_for_spec(spec_id)
+            if entity_type:
+                entities = [e for e in entities if e.type == entity_type]
+        else:
+            entities = project.memory.search_entities(entity_type=entity_type, limit=limit)
+
+        entities = entities[:limit]
+
+        if json_output:
+            result = {
+                "success": True,
+                "count": len(entities),
+                "entities": [e.to_dict() for e in entities],
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            if not entities:
+                print("No memory entries found")
+            else:
+                print(f"Found {len(entities)} memory entries:\n")
+                for entity in entities:
+                    spec = entity.context.get("spec_id", "global")
+                    print(f"[{entity.type}] {entity.name}")
+                    print(f"  {entity.description[:80]}...")
+                    print(f"  Spec: {spec} | Relevance: {entity.relevance_score:.1f}")
+                    print()
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_memory_search(
+    keyword: str,
+    entity_type: str | None = None,
+    limit: int = 10,
+    json_output: bool = False,
+) -> int:
+    """Search memory entries."""
+    try:
+        project = Project.load()
+        entities = project.memory.search_entities(
+            entity_type=entity_type,
+            keyword=keyword,
+            limit=limit,
+        )
+
+        if json_output:
+            result = {
+                "success": True,
+                "keyword": keyword,
+                "count": len(entities),
+                "entities": [e.to_dict() for e in entities],
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            if not entities:
+                print(f"No matches for '{keyword}'")
+            else:
+                print(f"Found {len(entities)} matches for '{keyword}':\n")
+                for entity in entities:
+                    spec = entity.context.get("spec_id", "global")
+                    print(f"[{entity.type}] {entity.name}")
+                    print(f"  {entity.description[:80]}")
+                    print(f"  Spec: {spec}")
+                    print()
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_memory_add(
+    entity_type: str,
+    name: str,
+    description: str,
+    spec_id: str | None = None,
+    relevance: float = 1.0,
+    json_output: bool = False,
+) -> int:
+    """Add a memory entry."""
+    try:
+        project = Project.load()
+
+        entity = project.memory.add_memory(
+            entity_type=entity_type,
+            name=name,
+            description=description,
+            spec_id=spec_id,
+            relevance=min(max(relevance, 0.0), 1.0),  # Clamp to 0-1
+        )
+
+        if json_output:
+            result = {
+                "success": True,
+                "entity": entity.to_dict(),
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Added memory entry: {entity.id}")
+            print(f"  Type: {entity_type}")
+            print(f"  Name: {name}")
+            if spec_id:
+                print(f"  Spec: {spec_id}")
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_memory_cleanup(days: int = 90, json_output: bool = False) -> int:
+    """Clean up old memory entries."""
+    try:
+        project = Project.load()
+        removed = project.memory.cleanup_old_entities(days=days)
+
+        if json_output:
+            result = {
+                "success": True,
+                "removed": removed,
+                "days": days,
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            if removed > 0:
+                print(f"Removed {removed} memory entries older than {days} days")
+            else:
+                print(f"No entries older than {days} days")
         return 0
     except FileNotFoundError:
         if json_output:

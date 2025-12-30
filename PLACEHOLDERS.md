@@ -132,17 +132,34 @@ specflow task-followup TECH-DEBT-001 my-feature "Refactor database pooling" \
 
 ## Medium Priority
 
-### 6. Cross-Session Memory System
+### ~~6. Cross-Session Memory System~~ COMPLETED
 
-**File:** `.specflow/memory/` directory
-**Status:** Partial
-**Description:** Directory structure exists but memory extraction/retrieval isn't implemented.
+**File:** `src/specflow/memory/store.py`, `src/specflow/orchestration/execution.py`
+**Status:** Completed
+**Description:** Cross-session memory system for persisting knowledge across agent executions.
 
-**Needed:**
-- Entity extraction from conversations
-- Memory persistence between sessions
-- Context injection into agent prompts
-- Memory search/retrieval
+**Implementation:**
+- `MemoryStore` integrated into `Project` class
+- Entity types: file, decision, pattern, dependency, note
+- Automatic extraction from agent outputs after execution
+- Memory context injected into agent prompts
+- Per-spec and global memory support
+
+**CLI Commands:**
+```bash
+specflow memory-stats           # Show memory statistics
+specflow memory-list            # List all memory entries
+specflow memory-list --type decision --spec my-feature
+specflow memory-search "pattern"  # Search by keyword
+specflow memory-add decision "Use SQLite" "Decision to use SQLite for persistence"
+specflow memory-cleanup --days 30 # Remove old entries
+```
+
+**Features:**
+- Entities extracted: file references, decisions, patterns, dependencies, notes
+- Relevance scoring for prioritized context
+- Spec-specific filtering
+- Automatic persistence to JSON
 
 ---
 
@@ -238,6 +255,7 @@ These were previously placeholders but are now implemented:
 - [x] TUI New Spec Dialog - Modal for creating specs with Ctrl+N
 - [x] TUI Help Screen - Keyboard shortcuts and quick start guide with ?
 - [x] Agent-Created Follow-up Tasks - Agents create tasks for TODOs, tech debt, etc.
+- [x] Cross-Session Memory System - Memory persistence across sessions with CLI
 
 ---
 

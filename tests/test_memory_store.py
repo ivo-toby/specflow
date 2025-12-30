@@ -318,7 +318,8 @@ def test_get_context_empty_store(store):
     """Test getting context from empty store."""
     context = store.get_context_for_spec("spec-1")
 
-    assert "No relevant context found" in context
+    # Empty store returns empty string (no noise in prompts)
+    assert context == ""
 
 
 def test_cleanup_old_entities(store):

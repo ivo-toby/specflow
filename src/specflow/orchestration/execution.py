@@ -189,6 +189,9 @@ class ExecutionPipeline:
 
         issues = self._extract_issues(output) if not success else []
 
+        # Extract and store memories from agent output
+        self._extract_memories(task, stage, output)
+
         return ExecutionResult(
             success=success,
             iteration=iteration,
@@ -196,6 +199,17 @@ class ExecutionPipeline:
             duration_ms=duration_ms,
             issues=issues,
             session_id=session_id,
+        )
+
+    def _extract_memories(self, task: Task, stage: PipelineStage, output: str) -> None:
+        """Extract and store memories from agent output."""
+        source = f"{stage.agent_type.value}:{task.id}"
+
+        # Extract entities from the output
+        self.project.memory.extract_from_text(
+            text=output,
+            source=source,
+            spec_id=task.spec_id,
         )
 
     def _build_agent_prompt(
@@ -208,6 +222,9 @@ class ExecutionPipeline:
         plan_content = self._read_file(spec_dir / "plan.md")
 
         agent_name = AGENT_TYPE_TO_NAME.get(stage.agent_type, "specflow-coder")
+
+        # Get memory context for this spec
+        memory_context = self.project.memory.get_context_for_spec(task.spec_id)
 
         prompt = f"""You are the {agent_name} agent working on task {task.id}.
 
@@ -228,6 +245,7 @@ You are working in: {worktree_path}
 ## Implementation Plan
 {plan_content if plan_content else "No implementation plan found."}
 
+{memory_context}
 ## Creating Follow-up Tasks
 
 When you encounter work that should be done but is outside your current task scope,
