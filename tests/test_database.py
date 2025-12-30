@@ -68,7 +68,7 @@ class TestTask:
             spec_id="spec-001",
             title="Implement feature",
             description="Implementation details",
-            status=TaskStatus.PENDING,
+            status=TaskStatus.TODO,
             priority=10,
             dependencies=["task-000"],
             assignee="coder",
@@ -83,7 +83,7 @@ class TestTask:
         assert d["id"] == "task-001"
         assert d["spec_id"] == "spec-001"
         assert d["dependencies"] == ["task-000"]
-        assert d["status"] == "pending"
+        assert d["status"] == "todo"
 
     def test_from_dict(self):
         """Test creating task from dictionary."""
@@ -93,7 +93,7 @@ class TestTask:
             "spec_id": "spec-001",
             "title": "Test task",
             "description": "",
-            "status": "in_progress",
+            "status": "implementing",
             "priority": 5,
             "dependencies": ["task-000"],
             "assignee": "reviewer",
@@ -106,7 +106,7 @@ class TestTask:
 
         task = Task.from_dict(d)
         assert task.id == "task-001"
-        assert task.status == TaskStatus.IN_PROGRESS
+        assert task.status == TaskStatus.IMPLEMENTING
         assert task.iteration == 2
         assert task.dependencies == ["task-000"]
 
@@ -236,7 +236,7 @@ class TestDatabase:
             spec_id="spec-001",
             title="Test Task",
             description="Description",
-            status=TaskStatus.PENDING,
+            status=TaskStatus.TODO,
             priority=5,
             dependencies=[],
             assignee=None,
@@ -276,7 +276,7 @@ class TestDatabase:
             spec_id="spec-001",
             title="First Task",
             description="",
-            status=TaskStatus.PENDING,
+            status=TaskStatus.TODO,
             priority=10,
             dependencies=[],
             assignee=None,
@@ -293,7 +293,7 @@ class TestDatabase:
             spec_id="spec-001",
             title="Second Task",
             description="",
-            status=TaskStatus.PENDING,
+            status=TaskStatus.TODO,
             priority=5,
             dependencies=["task-001"],
             assignee=None,
@@ -313,7 +313,7 @@ class TestDatabase:
         assert ready[0].id == "task-001"
 
         # Complete task1
-        task1.status = TaskStatus.COMPLETED
+        task1.status = TaskStatus.DONE
         temp_db.update_task(task1)
 
         # Now task2 should be ready
@@ -341,7 +341,7 @@ class TestDatabase:
             spec_id="spec-001",
             title="Task",
             description="",
-            status=TaskStatus.IN_PROGRESS,
+            status=TaskStatus.IMPLEMENTING,
             priority=0,
             dependencies=[],
             assignee="coder",

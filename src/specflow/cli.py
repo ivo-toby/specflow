@@ -257,6 +257,18 @@ def main() -> int:
         "--days", type=int, default=90, help="Remove entries older than N days (default: 90)"
     )
 
+    # sync-export command
+    subparsers.add_parser("sync-export", help="Export database to JSONL file")
+
+    # sync-import command
+    subparsers.add_parser("sync-import", help="Import from JSONL file to database")
+
+    # sync-compact command
+    subparsers.add_parser("sync-compact", help="Compact JSONL file (remove superseded changes)")
+
+    # sync-status command
+    subparsers.add_parser("sync-status", help="Show JSONL sync status")
+
     # worktree-create command
     worktree_create_parser = subparsers.add_parser(
         "worktree-create", help="Create a git worktree for a task"
@@ -363,6 +375,14 @@ def main() -> int:
         return cmd_memory_add(args.type, args.name, args.description, args.spec, args.relevance, args.json)
     elif args.command == "memory-cleanup":
         return cmd_memory_cleanup(args.days, args.json)
+    elif args.command == "sync-export":
+        return cmd_sync_export(args.json)
+    elif args.command == "sync-import":
+        return cmd_sync_import(args.json)
+    elif args.command == "sync-compact":
+        return cmd_sync_compact(args.json)
+    elif args.command == "sync-status":
+        return cmd_sync_status(args.json)
     elif args.command == "worktree-create":
         return cmd_worktree_create(args.task_id, args.base, args.json)
     elif args.command == "worktree-remove":
@@ -1507,6 +1527,226 @@ def cmd_memory_cleanup(days: int = 90, json_output: bool = False) -> int:
                 print(f"Removed {removed} memory entries older than {days} days")
             else:
                 print(f"No entries older than {days} days")
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_sync_export(json_output: bool = False) -> int:
+    """Export database to JSONL file."""
+    try:
+        project = Project.load()
+        project.sync.export_all()
+
+        # Count entities
+        specs = project.db.list_specs()
+        tasks = project.db.list_tasks()
+
+        if json_output:
+            result = {
+                "success": True,
+                "jsonl_path": str(project.jsonl_path),
+                "specs_exported": len(specs),
+                "tasks_exported": len(tasks),
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Exported to: {project.jsonl_path}")
+            print(f"  Specs: {len(specs)}")
+            print(f"  Tasks: {len(tasks)}")
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_sync_import(json_output: bool = False) -> int:
+    """Import from JSONL file to database."""
+    try:
+        project = Project.load()
+
+        if not project.jsonl_path.exists():
+            if json_output:
+                result = {"success": False, "error": "No JSONL file found"}
+                print(json.dumps(result, indent=2))
+            else:
+                print(f"No JSONL file found at: {project.jsonl_path}", file=sys.stderr)
+            return 1
+
+        # Count before import
+        specs_before = len(project.db.list_specs())
+        tasks_before = len(project.db.list_tasks())
+
+        project.sync.import_changes()
+
+        # Count after import
+        specs_after = len(project.db.list_specs())
+        tasks_after = len(project.db.list_tasks())
+
+        if json_output:
+            result = {
+                "success": True,
+                "jsonl_path": str(project.jsonl_path),
+                "specs_before": specs_before,
+                "specs_after": specs_after,
+                "tasks_before": tasks_before,
+                "tasks_after": tasks_after,
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Imported from: {project.jsonl_path}")
+            print(f"  Specs: {specs_before} → {specs_after}")
+            print(f"  Tasks: {tasks_before} → {tasks_after}")
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_sync_compact(json_output: bool = False) -> int:
+    """Compact JSONL file by removing superseded changes."""
+    try:
+        project = Project.load()
+
+        if not project.jsonl_path.exists():
+            if json_output:
+                result = {"success": False, "error": "No JSONL file found"}
+                print(json.dumps(result, indent=2))
+            else:
+                print(f"No JSONL file found at: {project.jsonl_path}", file=sys.stderr)
+            return 1
+
+        # Get size before
+        size_before = project.jsonl_path.stat().st_size
+
+        # Count lines before
+        with open(project.jsonl_path) as f:
+            lines_before = sum(1 for _ in f)
+
+        project.sync.compact()
+
+        # Get size after
+        size_after = project.jsonl_path.stat().st_size
+
+        # Count lines after
+        with open(project.jsonl_path) as f:
+            lines_after = sum(1 for _ in f)
+
+        if json_output:
+            result = {
+                "success": True,
+                "jsonl_path": str(project.jsonl_path),
+                "lines_before": lines_before,
+                "lines_after": lines_after,
+                "bytes_before": size_before,
+                "bytes_after": size_after,
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Compacted: {project.jsonl_path}")
+            print(f"  Lines: {lines_before} → {lines_after}")
+            print(f"  Size: {size_before} → {size_after} bytes")
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_sync_status(json_output: bool = False) -> int:
+    """Show JSONL sync status."""
+    try:
+        project = Project.load()
+
+        # Check if sync is enabled
+        sync_enabled = project.config.sync_jsonl
+        jsonl_exists = project.jsonl_path.exists()
+
+        jsonl_stats = {}
+        if jsonl_exists:
+            size = project.jsonl_path.stat().st_size
+            with open(project.jsonl_path) as f:
+                lines = sum(1 for _ in f)
+            mtime = datetime.fromtimestamp(project.jsonl_path.stat().st_mtime)
+            jsonl_stats = {
+                "lines": lines,
+                "bytes": size,
+                "last_modified": mtime.isoformat(),
+            }
+
+        # Database stats
+        specs_count = len(project.db.list_specs())
+        tasks_count = len(project.db.list_tasks())
+
+        if json_output:
+            result = {
+                "success": True,
+                "sync_enabled": sync_enabled,
+                "jsonl_path": str(project.jsonl_path),
+                "jsonl_exists": jsonl_exists,
+                "jsonl_stats": jsonl_stats,
+                "database": {
+                    "specs": specs_count,
+                    "tasks": tasks_count,
+                },
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            print("JSONL Sync Status")
+            print(f"  Enabled: {'Yes' if sync_enabled else 'No'}")
+            print(f"  Path: {project.jsonl_path}")
+            print(f"  Exists: {'Yes' if jsonl_exists else 'No'}")
+            if jsonl_stats:
+                print(f"  Lines: {jsonl_stats['lines']}")
+                print(f"  Size: {jsonl_stats['bytes']} bytes")
+                print(f"  Last modified: {jsonl_stats['last_modified']}")
+            print(f"\nDatabase:")
+            print(f"  Specs: {specs_count}")
+            print(f"  Tasks: {tasks_count}")
         return 0
     except FileNotFoundError:
         if json_output:

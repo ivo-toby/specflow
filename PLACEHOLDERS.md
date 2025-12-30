@@ -203,16 +203,39 @@ Completed: 5/5 tasks successful
 
 ---
 
-### 8. JSONL Sync for Git-Friendly Database
+### ~~8. JSONL Sync for Git-Friendly Database~~ COMPLETED
 
-**File:** `src/specflow/core/sync.py` (if exists)
-**Status:** Not Started
-**Description:** README mentions JSONL sync but it's not implemented.
+**File:** `src/specflow/core/sync.py`
+**Status:** Completed
+**Description:** Full JSONL sync for git-friendly database collaboration.
 
-**Needed:**
-- Export database to JSONL files
-- Import from JSONL on project load
-- Enable git-based collaboration on specs/tasks
+**Implementation:**
+- `JsonlSync` class handles export/import/compact operations
+- `SyncedDatabase` class extends Database with automatic JSONL recording
+- Project class uses `SyncedDatabase` when `sync_jsonl: true` in config
+- Auto-import from JSONL on project load (picks up git-synced changes)
+- All database mutations (create/update/delete for specs and tasks) are recorded
+
+**CLI Commands:**
+```bash
+specflow sync-export    # Export database to JSONL
+specflow sync-import    # Import from JSONL to database
+specflow sync-compact   # Compact JSONL (remove superseded changes)
+specflow sync-status    # Show sync status and statistics
+```
+
+**Configuration:**
+```yaml
+database:
+  path: .specflow/specflow.db
+  sync_jsonl: true  # Enable automatic JSONL sync (default)
+```
+
+**Git Workflow:**
+1. Developer A makes changes → auto-recorded to `specs.jsonl`
+2. Developer A commits and pushes `specs.jsonl`
+3. Developer B pulls → `specs.jsonl` updated
+4. Developer B runs `specflow` → changes imported from JSONL
 
 ---
 
@@ -280,6 +303,8 @@ These were previously placeholders but are now implemented:
 - [x] TUI Help Screen - Keyboard shortcuts and quick start guide with ?
 - [x] Agent-Created Follow-up Tasks - Agents create tasks for TODOs, tech debt, etc.
 - [x] Cross-Session Memory System - Memory persistence across sessions with CLI
+- [x] Parallel Task Execution - ThreadPoolExecutor with priority ordering
+- [x] JSONL Sync - Git-friendly database with auto-sync and CLI commands
 
 ---
 

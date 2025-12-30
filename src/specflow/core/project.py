@@ -7,7 +7,7 @@ from pathlib import Path
 
 from specflow.core.config import Config
 from specflow.core.database import Database, Task, TaskStatus
-from specflow.core.sync import JsonlSync
+from specflow.core.sync import JsonlSync, SyncedDatabase
 from specflow.memory.store import MemoryStore
 
 
@@ -19,7 +19,12 @@ class Project:
         self.root = root
         self.config = config
         self.db = db
-        self.sync = JsonlSync(db, root / ".specflow" / "specs.jsonl")
+        self.jsonl_path = root / ".specflow" / "specs.jsonl"
+        # If using SyncedDatabase, sync is built-in; otherwise create JsonlSync for manual operations
+        if isinstance(db, SyncedDatabase):
+            self.sync = db.sync
+        else:
+            self.sync = JsonlSync(db, self.jsonl_path)
         self.memory = MemoryStore(root / ".specflow" / "memory")
 
     @classmethod
@@ -56,9 +61,13 @@ class Project:
         project_name = path.name
         config = Config.create_default(config_path, project_name)
 
-        # Initialize database
+        # Initialize database (use SyncedDatabase if sync_jsonl is enabled)
         db_path = path / config.database_path
-        db = Database(db_path)
+        jsonl_path = path / ".specflow" / "specs.jsonl"
+        if config.sync_jsonl:
+            db = SyncedDatabase(db_path, jsonl_path)
+        else:
+            db = Database(db_path)
         db.init_schema()
 
         # Create constitution template
@@ -144,13 +153,21 @@ class Project:
     def load(cls, path: Path | None = None) -> "Project":
         """Load an existing SpecFlow project."""
         config = Config.load(path)
-        db = Database(config.project_root / config.database_path)
+        db_path = config.project_root / config.database_path
+        jsonl_path = config.project_root / ".specflow" / "specs.jsonl"
+
+        # Use SyncedDatabase if sync_jsonl is enabled
+        if config.sync_jsonl:
+            db = SyncedDatabase(db_path, jsonl_path)
+        else:
+            db = Database(db_path)
+
         db.init_schema()  # Ensure schema is up to date
 
         project = cls(config.project_root, config, db)
 
-        # Sync from JSONL if enabled
-        if config.sync_jsonl:
+        # Import from JSONL on load (for git-synced changes from other collaborators)
+        if config.sync_jsonl and jsonl_path.exists():
             project.sync.import_changes()
 
         return project

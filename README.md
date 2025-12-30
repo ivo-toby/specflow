@@ -246,6 +246,20 @@ specflow memory-cleanup [--days 90]                # Remove old entries
 
 **Entity types:** `file`, `decision`, `pattern`, `dependency`, `note`
 
+### JSONL Sync (Git Collaboration)
+
+```bash
+specflow sync-export                  # Export database to JSONL file
+specflow sync-import                  # Import from JSONL to database
+specflow sync-compact                 # Compact JSONL (remove old changes)
+specflow sync-status                  # Show sync status and statistics
+```
+
+JSONL sync enables git-based collaboration:
+1. Changes are automatically recorded to `specs.jsonl`
+2. Commit and push the JSONL file
+3. Collaborators pull and changes are imported on next `specflow` run
+
 ### Headless Execution
 
 ```bash

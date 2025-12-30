@@ -96,7 +96,7 @@ class TestJsonlSync:
             spec_id="spec-001",
             title="Test Task",
             description="",
-            status=TaskStatus.PENDING,
+            status=TaskStatus.TODO,
             priority=0,
             dependencies=[],
             assignee=None,
@@ -287,3 +287,122 @@ class TestSyncedDatabase:
         assert "delete" in content
 
         db.close()
+
+    def test_auto_sync_on_update_task_status(self, temp_dir):
+        """Test automatic sync on task status update."""
+        db_path = temp_dir / "synced.db"
+        jsonl_path = temp_dir / "synced.jsonl"
+
+        db = SyncedDatabase(db_path, jsonl_path)
+        db.init_schema()
+
+        now = datetime.now()
+
+        # Create spec first
+        spec = Spec(
+            id="spec-001",
+            title="Test Spec",
+            status=SpecStatus.DRAFT,
+            source_type=None,
+            created_at=now,
+            updated_at=now,
+            metadata={},
+        )
+        db.create_spec(spec)
+
+        # Create task
+        task = Task(
+            id="task-001",
+            spec_id="spec-001",
+            title="Test Task",
+            description="",
+            status=TaskStatus.TODO,
+            priority=0,
+            dependencies=[],
+            assignee=None,
+            worktree=None,
+            iteration=0,
+            created_at=now,
+            updated_at=now,
+            metadata={},
+        )
+        db.create_task(task)
+
+        # Update task status
+        updated_task = db.update_task_status("task-001", TaskStatus.IMPLEMENTING)
+
+        assert updated_task.status == TaskStatus.IMPLEMENTING
+
+        # Verify JSONL contains the update
+        content = jsonl_path.read_text()
+        lines = [line for line in content.strip().split("\n") if "task-001" in line]
+
+        # Should have create and update for task
+        assert len(lines) >= 2
+        assert any("implementing" in line for line in lines)
+
+        db.close()
+
+    def test_task_sync_roundtrip(self, temp_dir):
+        """Test task creation, update, and import roundtrip."""
+        db_path = temp_dir / "synced.db"
+        jsonl_path = temp_dir / "synced.jsonl"
+
+        db = SyncedDatabase(db_path, jsonl_path)
+        db.init_schema()
+
+        now = datetime.now()
+
+        # Create spec and task
+        spec = Spec(
+            id="spec-001",
+            title="Test Spec",
+            status=SpecStatus.DRAFT,
+            source_type=None,
+            created_at=now,
+            updated_at=now,
+            metadata={},
+        )
+        db.create_spec(spec)
+
+        task = Task(
+            id="task-001",
+            spec_id="spec-001",
+            title="Test Task",
+            description="Test description",
+            status=TaskStatus.TODO,
+            priority=1,
+            dependencies=[],
+            assignee=None,
+            worktree=None,
+            iteration=0,
+            created_at=now,
+            updated_at=now,
+            metadata={"key": "value"},
+        )
+        db.create_task(task)
+
+        # Update task
+        task.status = TaskStatus.DONE
+        task.assignee = "coder"
+        db.update_task(task)
+
+        db.close()
+
+        # Create new database and import
+        db_path2 = temp_dir / "synced2.db"
+        db2 = Database(db_path2)
+        db2.init_schema()
+
+        sync = JsonlSync(db2, jsonl_path)
+        sync.import_changes()
+
+        # Verify imported task
+        imported_task = db2.get_task("task-001")
+        assert imported_task is not None
+        assert imported_task.title == "Test Task"
+        assert imported_task.status == TaskStatus.DONE
+        assert imported_task.assignee == "coder"
+        assert imported_task.metadata.get("key") == "value"
+
+        db2.close()

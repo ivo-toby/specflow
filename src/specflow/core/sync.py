@@ -202,3 +202,9 @@ class SyncedDatabase(Database):
         """Delete a task and record the change."""
         super().delete_task(task_id)
         self.sync.record_change("task", task_id, ChangeType.DELETE)
+
+    def update_task_status(self, task_id: str, status: "TaskStatus") -> Task:
+        """Update a task's status and record the change."""
+        task = super().update_task_status(task_id, status)
+        self.sync.record_change("task", task.id, ChangeType.UPDATE, task.to_dict())
+        return task
