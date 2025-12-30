@@ -84,7 +84,14 @@ You stay in control through human approval gates during specification, then let 
 ### Persistence & Memory
 - **SQLite Database** — Fast local storage for specs, tasks, and agents
 - **Cross-Session Memory** — Entity extraction and context persistence
+- **Memory Injection** — Relevant context automatically included in agent prompts
 - **JSONL Sync** — Git-friendly database synchronization
+
+### Intelligent Task Management
+- **Agent-Created Follow-up Tasks** — Agents create tasks for TODOs, tech debt, and edge cases
+- **Task Categories** — PLACEHOLDER, TECH-DEBT, REFACTOR, TEST-GAP, EDGE-CASE, DOC
+- **Parent Task Linking** — Follow-up tasks link to their source task
+- **Visual Indicators** — TUI shows colored badges for follow-up task types
 
 ## Installation
 
@@ -135,9 +142,13 @@ specflow tui
 | `q` | Quit |
 | `s` | Focus specs panel |
 | `a` | Focus agents panel |
-| `t` | Focus tasks/swimlane |
+| `t` | Open task swimlane board |
 | `e` | Focus spec editor |
 | `g` | Focus dependency graph |
+| `c` | Open configuration screen |
+| `?` | Show help screen |
+| `Ctrl+N` | Create new specification |
+| `Ctrl+S` | Save current editor tab |
 | `r` | Refresh all panels |
 
 ### 3. Create requirements (via Claude Code)
@@ -198,9 +209,12 @@ specflow spec-get <id> [--json]
 specflow list-tasks [--spec ID] [--status STATUS] [--json]
 specflow task-create <id> <spec-id> <title> [--priority 1|2|3] [--dependencies IDS]
 specflow task-update <id> <status>
+specflow task-followup <id> <spec-id> <title> [--parent TASK-ID] [--priority 2|3]
 ```
 
 **Task statuses:** `todo`, `implementing`, `testing`, `reviewing`, `done`
+
+**Follow-up task prefixes:** `PLACEHOLDER-`, `TECH-DEBT-`, `REFACTOR-`, `TEST-GAP-`, `EDGE-CASE-`, `DOC-`
 
 ### Agent Management
 
@@ -219,6 +233,18 @@ specflow worktree-list [--json]
 specflow worktree-remove <task-id> [--force]
 specflow merge-task <task-id> [--target main] [--cleanup]
 ```
+
+### Memory Management
+
+```bash
+specflow memory-stats                              # Show memory statistics
+specflow memory-list [--type TYPE] [--spec ID]     # List memory entries
+specflow memory-search <keyword> [--type TYPE]     # Search memory
+specflow memory-add <type> <name> <description>    # Add manual entry
+specflow memory-cleanup [--days 90]                # Remove old entries
+```
+
+**Entity types:** `file`, `decision`, `pattern`, `dependency`, `note`
 
 ### Headless Execution
 
@@ -358,6 +384,55 @@ specflow merge-task TASK-001 --cleanup
 
 # List all active worktrees
 specflow worktree-list --json
+```
+
+### Example 5: Using Cross-Session Memory
+
+```bash
+# Add a design decision to memory
+specflow memory-add decision "Use Repository Pattern" \
+    "All data access goes through repository interfaces" \
+    --spec auth-feature
+
+# Store a technical note
+specflow memory-add note "Connection Pooling" \
+    "Database connections should use pooling for performance"
+
+# Search memory for relevant context
+specflow memory-search "repository"
+
+# View memory statistics
+specflow memory-stats
+
+# List all decisions
+specflow memory-list --type decision
+
+# Memory is automatically injected into agent prompts during execution
+specflow execute --spec auth-feature
+# Agents will see: "## Relevant Context from Memory\n### Decisions\n- Use Repository Pattern..."
+```
+
+### Example 6: Follow-up Tasks
+
+During implementation, agents automatically create follow-up tasks:
+
+```bash
+# Agents create follow-up tasks like:
+specflow task-followup TECH-DEBT-001 auth-feature \
+    "Add connection pooling to database module" \
+    --parent TASK-002 --priority 3
+
+specflow task-followup PLACEHOLDER-001 auth-feature \
+    "Implement OAuth refresh token logic" \
+    --parent TASK-003 --priority 2
+
+# View follow-up tasks for a spec
+specflow list-tasks --spec auth-feature --json | jq '.tasks[] | select(.metadata.is_followup)'
+
+# Follow-up tasks appear with colored badges in TUI:
+# [DEBT] - Red badge for tech debt
+# [TODO] - Yellow badge for placeholders
+# [TEST] - Magenta badge for test gaps
 ```
 
 ## Architecture
