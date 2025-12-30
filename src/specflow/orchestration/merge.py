@@ -1,5 +1,8 @@
 """Merge orchestrator with 3-tier conflict resolution."""
 
+import json
+import os
+import subprocess
 from pathlib import Path
 
 from git import Repo
@@ -48,6 +51,16 @@ class GitAutoMerge(MergeStrategy):
 class ConflictOnlyAIMerge(MergeStrategy):
     """Tier 2: AI resolves only conflicted sections."""
 
+    def __init__(self, claude_path: str = "claude", timeout: int = 300):
+        """Initialize with Claude Code configuration.
+
+        Args:
+            claude_path: Path to claude CLI (default: "claude")
+            timeout: Timeout in seconds for AI resolution (default: 300)
+        """
+        self.claude_path = claude_path
+        self.timeout = timeout
+
     def merge(self, repo: Repo, source_branch: str, target_branch: str) -> tuple[bool, str]:
         """Resolve conflicts using AI on conflicted sections only."""
         # Checkout target branch
@@ -83,14 +96,162 @@ class ConflictOnlyAIMerge(MergeStrategy):
                 repo.git.merge("--abort")
                 return False, f"Failed to commit: {e}"
 
-        # Placeholder: In real implementation, use AI to resolve conflicts
-        # For now, abort the merge
-        try:
-            repo.git.merge("--abort")
-        except Exception:
-            pass
+        # Resolve each conflicted file using AI
+        working_dir = Path(repo.working_dir)
+        resolved_count = 0
+        failed_files = []
 
-        return False, f"Conflicts in {len(conflicted_files)} files: {', '.join(conflicted_files[:5])}"
+        for file_path in conflicted_files:
+            full_path = working_dir / file_path
+            success, error = self._resolve_file_conflicts(full_path, source_branch, target_branch)
+
+            if success:
+                # Stage the resolved file
+                try:
+                    repo.git.add(file_path)
+                    resolved_count += 1
+                except Exception as e:
+                    failed_files.append(f"{file_path}: Failed to stage - {e}")
+            else:
+                failed_files.append(f"{file_path}: {error}")
+
+        # If any files failed to resolve, abort
+        if failed_files:
+            try:
+                repo.git.merge("--abort")
+            except Exception:
+                pass
+            return False, f"AI resolution failed for {len(failed_files)} file(s): {'; '.join(failed_files[:3])}"
+
+        # Complete the merge
+        try:
+            repo.git.commit("-m", f"Merge {source_branch} into {target_branch} (AI-resolved conflicts)")
+            return True, f"AI resolved conflicts in {resolved_count} file(s)"
+        except Exception as e:
+            try:
+                repo.git.merge("--abort")
+            except Exception:
+                pass
+            return False, f"Failed to commit after resolution: {e}"
+
+    def _resolve_file_conflicts(self, file_path: Path, source_branch: str, target_branch: str) -> tuple[bool, str]:
+        """Resolve conflicts in a single file using Claude Code.
+
+        Args:
+            file_path: Path to the conflicted file
+            source_branch: Name of source branch
+            target_branch: Name of target branch
+
+        Returns:
+            (success, error_message) tuple
+        """
+        # Read the conflicted file content
+        try:
+            conflicted_content = file_path.read_text()
+        except Exception as e:
+            return False, f"Failed to read file: {e}"
+
+        # Check if file actually has conflict markers
+        if "<<<<<<< HEAD" not in conflicted_content:
+            return True, "No conflict markers found"
+
+        # Build prompt for Claude
+        prompt = f"""You are resolving a git merge conflict. The file below contains conflict markers.
+
+FILE: {file_path.name}
+SOURCE BRANCH: {source_branch} (the incoming changes)
+TARGET BRANCH: {target_branch} (HEAD, the current branch)
+
+CONFLICT MARKERS EXPLAINED:
+- `<<<<<<< HEAD` marks the start of the TARGET branch version
+- `=======` separates the two versions
+- `>>>>>>> {source_branch}` marks the end of the SOURCE branch version
+
+YOUR TASK:
+1. Analyze each conflict section
+2. Decide how to merge the changes (keep one side, combine both, or create a new version)
+3. Output ONLY the fully resolved file content with NO conflict markers
+4. Do NOT include any explanation - output ONLY the resolved file content
+
+CONFLICTED FILE CONTENT:
+```
+{conflicted_content}
+```
+
+OUTPUT the resolved file content below (no markdown code blocks, no explanations):"""
+
+        # Run Claude to resolve
+        resolved_content, error = self._run_claude_resolution(prompt, file_path.parent)
+
+        if error:
+            return False, error
+
+        # Validate resolution (no conflict markers should remain)
+        if "<<<<<<< " in resolved_content or "=======" in resolved_content or ">>>>>>> " in resolved_content:
+            return False, "AI output still contains conflict markers"
+
+        # Write resolved content
+        try:
+            file_path.write_text(resolved_content)
+            return True, ""
+        except Exception as e:
+            return False, f"Failed to write resolved file: {e}"
+
+    def _run_claude_resolution(self, prompt: str, working_dir: Path) -> tuple[str | None, str | None]:
+        """Run Claude Code to resolve conflicts.
+
+        Args:
+            prompt: The prompt for conflict resolution
+            working_dir: Working directory for Claude
+
+        Returns:
+            (resolved_content, error) tuple - one will be None
+        """
+        cmd = [
+            self.claude_path,
+            "-p", prompt,
+            "--output-format", "json",
+            "--allowedTools", "",  # No tools needed, just text output
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=working_dir,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                env=os.environ.copy(),
+            )
+
+            if result.returncode != 0:
+                return None, f"Claude returned error: {result.stderr or result.stdout}"
+
+            # Parse JSON output
+            output = result.stdout
+            try:
+                json_output = json.loads(output)
+                resolved = json_output.get("result", output)
+            except json.JSONDecodeError:
+                # Not JSON, use raw output
+                resolved = output
+
+            # Clean up the output (remove any markdown code blocks if present)
+            resolved = resolved.strip()
+            if resolved.startswith("```") and resolved.endswith("```"):
+                # Remove code block markers
+                lines = resolved.split("\n")
+                if len(lines) > 2:
+                    resolved = "\n".join(lines[1:-1])
+
+            return resolved, None
+
+        except subprocess.TimeoutExpired:
+            return None, f"AI resolution timed out after {self.timeout}s"
+        except FileNotFoundError:
+            return None, f"Claude CLI not found at '{self.claude_path}'"
+        except Exception as e:
+            return None, f"Failed to run Claude: {e}"
 
 
 class FullFileAIMerge(MergeStrategy):
@@ -112,12 +273,20 @@ class FullFileAIMerge(MergeStrategy):
 class MergeOrchestrator:
     """Orchestrates merge operations with 3-tier strategy."""
 
-    def __init__(self, repo_path: Path):
-        """Initialize merge orchestrator."""
+    def __init__(self, repo_path: Path, claude_path: str = "claude", timeout: int = 300):
+        """Initialize merge orchestrator.
+
+        Args:
+            repo_path: Path to the git repository
+            claude_path: Path to claude CLI (default: "claude")
+            timeout: Timeout in seconds for AI operations (default: 300)
+        """
         self.repo = Repo(repo_path)
+        self.claude_path = claude_path
+        self.timeout = timeout
         self.strategies = [
             ("Auto-merge", GitAutoMerge()),
-            ("AI conflict resolution", ConflictOnlyAIMerge()),
+            ("AI conflict resolution", ConflictOnlyAIMerge(claude_path, timeout)),
             ("AI file regeneration", FullFileAIMerge()),
         ]
 

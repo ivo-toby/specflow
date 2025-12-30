@@ -12,32 +12,28 @@ This document tracks all placeholders, TODOs, and incomplete implementations in 
 
 ## High Priority
 
-### 1. AI Conflict Resolution (Tier 2 Merge)
+### ~~1. AI Conflict Resolution (Tier 2 Merge)~~ COMPLETED
 
-**File:** `src/specflow/orchestration/merge.py:48-93`
-**Status:** Partial
-**Description:** The `ConflictOnlyAIMerge` class detects conflicts but doesn't actually resolve them using AI.
+**File:** `src/specflow/orchestration/merge.py:51-254`
+**Status:** Completed
+**Description:** The `ConflictOnlyAIMerge` class now uses Claude Code to resolve git merge conflicts.
 
-**Current behavior:**
-- Detects conflicted files
-- Aborts merge and returns failure
+**Implementation:**
+- Reads conflicted files with conflict markers
+- Sends each file to Claude Code with a prompt explaining the conflict
+- Claude outputs the resolved file content (no markers)
+- Validates that no conflict markers remain
+- Stages resolved files and commits the merge
 
-**Needed:**
-- Integrate Claude Code to read conflict markers
-- Have AI resolve only the conflicted sections
-- Apply resolutions and commit
-
-```python
-# Current placeholder at line 86-93:
-# Placeholder: In real implementation, use AI to resolve conflicts
-# For now, abort the merge
-```
+**Key methods:**
+- `_resolve_file_conflicts()`: Resolves a single file using AI
+- `_run_claude_resolution()`: Runs Claude Code in headless mode
 
 ---
 
 ### 2. AI File Regeneration (Tier 3 Merge)
 
-**File:** `src/specflow/orchestration/merge.py:96-109`
+**File:** `src/specflow/orchestration/merge.py:257-270`
 **Status:** Not Started
 **Description:** The `FullFileAIMerge` class is completely unimplemented.
 
@@ -313,6 +309,7 @@ These were previously placeholders but are now implemented:
 - [x] Real Claude Code headless execution
 - [x] Subagent spawning (Task tool in allowedTools)
 - [x] BRD/PRD tabs in spec editor
+- [x] AI Conflict Resolution (Tier 2 Merge) - Claude resolves git conflicts
 
 ---
 
