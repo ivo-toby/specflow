@@ -272,15 +272,20 @@ agents:
 
 ---
 
-### 10. Task Priority Queuing
+### ~~10. Task Priority Queuing~~ COMPLETED
 
-**File:** `src/specflow/orchestration/agent_pool.py`
-**Status:** Partial
-**Description:** `AgentPool` exists but doesn't use priority for task ordering.
+**File:** `src/specflow/cli.py:cmd_execute`
+**Status:** Completed
+**Description:** Priority-based task execution is fully implemented.
 
-**Note:** Priority-based execution is now implemented in `cmd_execute` using
-`sorted(tasks, key=lambda t: t.priority)`. The AgentPool itself doesn't need
-priority queuing since task selection happens in the CLI execute command.
+**Implementation:**
+- Tasks sorted by priority before execution: `sorted(tasks, key=lambda t: t.priority)`
+- Re-sorted when new tasks become ready: `pending_tasks.sort(key=lambda t: t.priority)`
+- Priority 1 (high) executes before Priority 3 (low)
+- Implemented at CLI level (correct place for task selection)
+
+**Note:** The AgentPool's internal queue is not used for the main execution path.
+Priority sorting happens in `cmd_execute` which manages the ThreadPoolExecutor.
 
 ---
 
@@ -324,6 +329,7 @@ These were previously placeholders but are now implemented:
 - [x] Parallel Task Execution - ThreadPoolExecutor with priority ordering
 - [x] JSONL Sync - Git-friendly database with auto-sync and CLI commands
 - [x] Agent Model Configuration - Per-agent model selection with --model flag
+- [x] Task Priority Queuing - Priority-based task ordering in parallel execution
 - [x] Execution Timeout Configuration - Configurable timeout via config
 
 ---

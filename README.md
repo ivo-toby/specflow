@@ -509,14 +509,16 @@ project/
 Edit `.specflow/config.yaml`:
 
 ```yaml
-project_name: my-project
+project:
+  name: my-project
 
 agents:
-  max_parallel: 6
+  max_parallel: 6           # Max concurrent agent executions
+  default_model: sonnet     # Fallback model if not specified per-agent
   architect:
-    model: opus
+    model: opus             # Use Opus for architecture decisions
   coder:
-    model: sonnet
+    model: sonnet           # Use Sonnet for implementation
   reviewer:
     model: sonnet
   tester:
@@ -525,9 +527,25 @@ agents:
     model: sonnet
 
 execution:
-  max_iterations: 10
-  timeout_minutes: 30
+  max_iterations: 10        # Max retries across all pipeline stages
+  timeout_minutes: 30       # Timeout per agent execution (in minutes)
+  worktree_dir: .worktrees  # Directory for task worktrees
+
+database:
+  path: .specflow/specflow.db
+  sync_jsonl: true          # Enable JSONL sync for git collaboration
 ```
+
+### Configuration Options
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `agents.max_parallel` | 6 | Maximum concurrent agent executions |
+| `agents.default_model` | sonnet | Default model when agent-specific not set |
+| `agents.<type>.model` | - | Model for specific agent (opus/sonnet/haiku) |
+| `execution.max_iterations` | 10 | Max retries across pipeline stages |
+| `execution.timeout_minutes` | 10 | Timeout per agent execution |
+| `database.sync_jsonl` | true | Auto-sync changes to JSONL for git |
 
 ## Development
 
