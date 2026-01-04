@@ -708,6 +708,77 @@ specflow init
 - Use `specflow status` to check project state at any time
 - Tasks flow through: Todo → Implementing → Testing → Reviewing → Done
 
+### Example 9: Onboarding an Existing Project
+
+Have an existing codebase with code already written? Maybe some PRDs floating around, but no formal specs or task tracking? Here's how to onboard it into SpecFlow:
+
+```bash
+# 1. Initialize SpecFlow in your existing project
+cd my-existing-project
+specflow init
+
+# 2. Configure your constitution - THIS IS CRITICAL
+#    The constitution must reflect your EXISTING patterns
+/specflow.constitution
+#
+# During the interactive setup, be sure to specify:
+# - Your existing tech stack (languages, frameworks already in use)
+# - Current code conventions (naming, file structure)
+# - Existing test patterns (pytest, jest, etc.)
+# - Any architectural patterns already established
+#
+# The AI agents will follow these rules and match your existing code style.
+
+# 3. If you have existing PRDs or requirements docs, ingest them
+/specflow.ingest docs/existing-prd.md
+/specflow.ingest docs/feature-requirements.md
+# Each becomes a spec that can be planned and implemented
+
+# 4. For new features without docs, create specs interactively
+/specflow.brd
+# Or jump straight to PRD if you know what you want:
+/specflow.prd
+
+# 5. Generate technical specs (review these carefully!)
+/specflow.specify {spec-id}
+# The architect agent will analyze your existing codebase
+# and create specs that fit your established patterns
+
+# 6. Plan and create tasks
+/specflow.plan {spec-id}
+/specflow.tasks {spec-id}
+
+# 7. Let agents implement (they'll follow your existing patterns)
+/specflow.implement {spec-id}
+```
+
+**Key considerations for existing projects:**
+
+1. **Constitution is everything** — Agents learn your project's rules from the constitution. If your existing code uses snake_case, specify that. If you have a specific directory structure, document it.
+
+2. **Agents analyze before implementing** — The architect agent reads your existing code to understand patterns before planning. The coder agent follows those patterns.
+
+3. **Start small** — Pick a small, isolated feature for your first spec. This lets you verify agents are matching your code style before tackling larger work.
+
+4. **Review generated specs carefully** — The first few specs may need tweaking until agents fully understand your codebase patterns.
+
+**Example constitution entries for existing projects:**
+
+```markdown
+## Technical Decisions
+- **Languages**: Python 3.11+ (existing codebase)
+- **Frameworks**: FastAPI for APIs, SQLAlchemy for ORM
+- **Database**: PostgreSQL (existing schema in migrations/)
+- **Testing**: pytest with fixtures in conftest.py
+
+## Implementation Phase
+### Code Quality
+- Follow existing patterns in src/services/ for business logic
+- All new endpoints go in src/api/routes/
+- Use existing BaseModel patterns for Pydantic schemas
+- Match existing docstring style (Google format)
+```
+
 ## Architecture
 
 ### Workflow
