@@ -139,15 +139,16 @@ class Project:
                 if should_copy(target_file):
                     shutil.copy2(hooks_file, target_file)
 
-            # Copy hook scripts
+            # Copy hook scripts (shell and Python)
             scripts_src = hooks_src / "scripts"
             if scripts_src.exists():
-                for script in scripts_src.glob("*.sh"):
-                    target_file = target_claude / "hooks" / "scripts" / script.name
-                    if should_copy(target_file):
-                        shutil.copy2(script, target_file)
-                        # Make scripts executable
-                        target_file.chmod(0o755)
+                for pattern in ("*.sh", "*.py"):
+                    for script in scripts_src.glob(pattern):
+                        target_file = target_claude / "hooks" / "scripts" / script.name
+                        if should_copy(target_file):
+                            shutil.copy2(script, target_file)
+                            # Make scripts executable
+                            target_file.chmod(0o755)
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Project":
