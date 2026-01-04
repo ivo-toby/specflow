@@ -5,9 +5,18 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from specflow.core.config import Config
-from specflow.core.database import Spec, SpecStatus, Task, TaskStatus
+from specflow.core.database import (
+    CompletionCriteria,
+    Spec,
+    SpecStatus,
+    Task,
+    TaskCompletionSpec,
+    TaskStatus,
+    VerificationMethod,
+)
 from specflow.core.project import Project
 
 
@@ -133,6 +142,36 @@ def main() -> int:
     # list-agents command
     subparsers.add_parser("list-agents", help="List active agents")
 
+    # ralph-status command
+    ralph_status_parser = subparsers.add_parser(
+        "ralph-status", help="Show active Ralph verification loops"
+    )
+    ralph_status_parser.add_argument(
+        "--task-id", help="Filter by task ID"
+    )
+    ralph_status_parser.add_argument(
+        "--status",
+        choices=["running", "completed", "cancelled", "failed"],
+        help="Filter by loop status",
+    )
+    ralph_status_parser.add_argument(
+        "--json", action="store_true", dest="json_output", help="Output as JSON"
+    )
+
+    # ralph-cancel command
+    ralph_cancel_parser = subparsers.add_parser(
+        "ralph-cancel", help="Cancel an active Ralph verification loop"
+    )
+    ralph_cancel_parser.add_argument("task_id", help="Task ID to cancel loop for")
+    ralph_cancel_parser.add_argument(
+        "--agent-type",
+        choices=["coder", "reviewer", "tester", "qa"],
+        help="Cancel only specific agent type (default: all)",
+    )
+    ralph_cancel_parser.add_argument(
+        "--json", action="store_true", dest="json_output", help="Output as JSON"
+    )
+
     # spec-create command
     spec_create_parser = subparsers.add_parser(
         "spec-create", help="Create a new specification"
@@ -183,6 +222,53 @@ def main() -> int:
     task_create_parser.add_argument(
         "--assignee", default="coder", help="Agent type to assign (default: coder)"
     )
+    # Ralph Loop completion options
+    task_create_parser.add_argument(
+        "--outcome", help="Expected outcome (what 'done' means for this task)"
+    )
+    task_create_parser.add_argument(
+        "--acceptance-criteria", action="append", dest="acceptance_criteria",
+        help="Acceptance criterion (can be repeated)"
+    )
+    task_create_parser.add_argument(
+        "--completion-file", type=Path,
+        help="Path to YAML/JSON file with completion specification"
+    )
+    # Per-agent completion criteria
+    task_create_parser.add_argument(
+        "--coder-promise", help="Promise text for coder agent"
+    )
+    task_create_parser.add_argument(
+        "--coder-verification", choices=["string_match", "semantic", "external", "multi_stage"],
+        help="Verification method for coder (default: external)"
+    )
+    task_create_parser.add_argument(
+        "--coder-command", help="External command for coder verification"
+    )
+    task_create_parser.add_argument(
+        "--reviewer-promise", help="Promise text for reviewer agent"
+    )
+    task_create_parser.add_argument(
+        "--reviewer-verification", choices=["string_match", "semantic", "external", "multi_stage"],
+        help="Verification method for reviewer (default: semantic)"
+    )
+    task_create_parser.add_argument(
+        "--tester-promise", help="Promise text for tester agent"
+    )
+    task_create_parser.add_argument(
+        "--tester-verification", choices=["string_match", "semantic", "external", "multi_stage"],
+        help="Verification method for tester (default: external)"
+    )
+    task_create_parser.add_argument(
+        "--tester-command", help="External command for tester verification"
+    )
+    task_create_parser.add_argument(
+        "--qa-promise", help="Promise text for QA agent"
+    )
+    task_create_parser.add_argument(
+        "--qa-verification", choices=["string_match", "semantic", "external", "multi_stage"],
+        help="Verification method for QA (default: multi_stage)"
+    )
 
     # task-followup command (for agents to create follow-up tasks)
     task_followup_parser = subparsers.add_parser(
@@ -206,6 +292,24 @@ def main() -> int:
         "--category",
         choices=["placeholder", "tech-debt", "refactor", "test-gap", "edge-case", "doc"],
         help="Category of follow-up (auto-detected from task_id prefix if not specified)"
+    )
+    # Ralph Loop completion options for follow-up tasks
+    task_followup_parser.add_argument(
+        "--outcome", help="Expected outcome for this follow-up task"
+    )
+    task_followup_parser.add_argument(
+        "--acceptance-criteria", action="append", dest="acceptance_criteria",
+        help="Acceptance criterion (can be repeated)"
+    )
+    task_followup_parser.add_argument(
+        "--coder-promise", help="Promise text for coder agent"
+    )
+    task_followup_parser.add_argument(
+        "--coder-verification", choices=["string_match", "semantic", "external", "multi_stage"],
+        help="Verification method for coder"
+    )
+    task_followup_parser.add_argument(
+        "--coder-command", help="External command for coder verification"
     )
 
     # memory-stats command
@@ -347,6 +451,18 @@ def main() -> int:
         return cmd_agent_stop(args.task_id, args.slot, args.json)
     elif args.command == "list-agents":
         return cmd_list_agents(args.json)
+    elif args.command == "ralph-status":
+        return cmd_ralph_status(
+            task_id=getattr(args, "task_id", None),
+            status=getattr(args, "status", None),
+            json_output=args.json_output,
+        )
+    elif args.command == "ralph-cancel":
+        return cmd_ralph_cancel(
+            task_id=args.task_id,
+            agent_type=getattr(args, "agent_type", None),
+            json_output=args.json_output,
+        )
     elif args.command == "spec-create":
         return cmd_spec_create(
             args.spec_id,
@@ -369,6 +485,20 @@ def main() -> int:
             args.dependencies,
             args.assignee,
             args.json,
+            # Completion options
+            outcome=args.outcome,
+            acceptance_criteria=args.acceptance_criteria,
+            completion_file=args.completion_file,
+            coder_promise=args.coder_promise,
+            coder_verification=args.coder_verification,
+            coder_command=args.coder_command,
+            reviewer_promise=args.reviewer_promise,
+            reviewer_verification=args.reviewer_verification,
+            tester_promise=args.tester_promise,
+            tester_verification=args.tester_verification,
+            tester_command=args.tester_command,
+            qa_promise=args.qa_promise,
+            qa_verification=args.qa_verification,
         )
     elif args.command == "task-followup":
         return cmd_task_followup(
@@ -380,6 +510,12 @@ def main() -> int:
             args.parent,
             args.category,
             args.json,
+            # Completion options
+            outcome=args.outcome,
+            acceptance_criteria=args.acceptance_criteria,
+            coder_promise=args.coder_promise,
+            coder_verification=args.coder_verification,
+            coder_command=args.coder_command,
         )
     elif args.command == "memory-stats":
         return cmd_memory_stats(args.json)
@@ -992,6 +1128,155 @@ def cmd_list_agents(json_output: bool = False) -> int:
         return 1
 
 
+def cmd_ralph_status(
+    task_id: str | None = None,
+    status: str | None = None,
+    json_output: bool = False,
+) -> int:
+    """Show active Ralph verification loops."""
+    try:
+        project = Project.load()
+
+        # Get loops, optionally filtered
+        if task_id:
+            loop = project.db.get_ralph_loop(task_id)
+            loops = [loop] if loop else []
+        else:
+            loops = project.db.list_ralph_loops(status=status)
+
+        # Filter by status if task_id was specified and status filter given
+        if task_id and status:
+            loops = [l for l in loops if l.status == status]
+
+        if json_output:
+            result = {
+                "success": True,
+                "count": len(loops),
+                "loops": [l.to_dict() for l in loops],
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            if not loops:
+                print("No active Ralph loops")
+            else:
+                print(f"Ralph loops ({len(loops)}):\n")
+                for loop in loops:
+                    status_colors = {
+                        "running": "[yellow]RUNNING[/yellow]",
+                        "completed": "[green]COMPLETED[/green]",
+                        "cancelled": "[red]CANCELLED[/red]",
+                        "failed": "[red]FAILED[/red]",
+                    }
+                    status_str = status_colors.get(loop.status, loop.status.upper())
+
+                    mins = int(loop.elapsed_seconds // 60)
+                    secs = int(loop.elapsed_seconds % 60)
+
+                    print(f"Task: {loop.task_id}")
+                    print(f"  Agent: {loop.agent_type}")
+                    print(f"  Status: {loop.status.upper()}")
+                    print(f"  Iteration: {loop.iteration}/{loop.max_iterations}")
+                    print(f"  Progress: {loop.progress_percent:.0f}%")
+                    print(f"  Running: {mins}m {secs}s")
+
+                    if loop.last_verification:
+                        last = loop.last_verification
+                        verified = "✓" if last.get("verified") else "✗"
+                        print(f"  Last check: {verified} {last.get('reason', 'N/A')[:50]}")
+                    print()
+
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_ralph_cancel(
+    task_id: str,
+    agent_type: str | None = None,
+    json_output: bool = False,
+) -> int:
+    """Cancel an active Ralph verification loop."""
+    try:
+        project = Project.load()
+
+        # Check if loop exists
+        loop = project.db.get_ralph_loop(task_id, agent_type)
+        if not loop:
+            if json_output:
+                result = {
+                    "success": False,
+                    "error": f"No Ralph loop found for task {task_id}"
+                    + (f" agent {agent_type}" if agent_type else ""),
+                }
+                print(json.dumps(result, indent=2))
+            else:
+                msg = f"No Ralph loop found for task {task_id}"
+                if agent_type:
+                    msg += f" agent {agent_type}"
+                print(msg, file=sys.stderr)
+            return 1
+
+        if loop.status != "running":
+            if json_output:
+                result = {
+                    "success": False,
+                    "error": f"Loop is not running (status: {loop.status})",
+                }
+                print(json.dumps(result, indent=2))
+            else:
+                print(f"Loop is not running (status: {loop.status})", file=sys.stderr)
+            return 1
+
+        # Cancel the loop
+        cancelled = project.db.cancel_ralph_loop(task_id, agent_type)
+
+        if json_output:
+            result = {
+                "success": cancelled,
+                "task_id": task_id,
+                "agent_type": agent_type or "all",
+                "message": "Loop cancelled" if cancelled else "Failed to cancel",
+            }
+            print(json.dumps(result, indent=2))
+        else:
+            if cancelled:
+                msg = f"Cancelled Ralph loop for task {task_id}"
+                if agent_type:
+                    msg += f" agent {agent_type}"
+                print(msg)
+            else:
+                print("Failed to cancel loop", file=sys.stderr)
+                return 1
+
+        return 0
+    except FileNotFoundError:
+        if json_output:
+            result = {"success": False, "error": "Not a SpecFlow project"}
+            print(json.dumps(result, indent=2))
+        else:
+            print("Not a SpecFlow project (no .specflow directory found)", file=sys.stderr)
+        return 1
+    except Exception as e:
+        if json_output:
+            result = {"success": False, "error": str(e)}
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
 def cmd_spec_create(
     spec_id: str,
     title: str | None = None,
@@ -1163,6 +1448,209 @@ def cmd_spec_get(spec_id: str, json_output: bool = False) -> int:
         return 1
 
 
+def _build_completion_spec(
+    outcome: str | None,
+    acceptance_criteria: list[str] | None,
+    completion_file: Path | None,
+    coder_promise: str | None = None,
+    coder_verification: str | None = None,
+    coder_command: str | None = None,
+    reviewer_promise: str | None = None,
+    reviewer_verification: str | None = None,
+    tester_promise: str | None = None,
+    tester_verification: str | None = None,
+    tester_command: str | None = None,
+    qa_promise: str | None = None,
+    qa_verification: str | None = None,
+    task_title: str = "",
+) -> TaskCompletionSpec | None:
+    """Build a TaskCompletionSpec from CLI arguments.
+
+    Args:
+        outcome: Expected outcome text
+        acceptance_criteria: List of acceptance criteria
+        completion_file: Path to YAML/JSON file with completion spec
+        coder_promise: Promise text for coder
+        coder_verification: Verification method for coder
+        coder_command: External command for coder
+        reviewer_promise: Promise text for reviewer
+        reviewer_verification: Verification method for reviewer
+        tester_promise: Promise text for tester
+        tester_verification: Verification method for tester
+        tester_command: External command for tester
+        qa_promise: Promise text for QA
+        qa_verification: Verification method for QA
+        task_title: Task title for default descriptions
+
+    Returns:
+        TaskCompletionSpec if any options provided, None otherwise
+    """
+    import yaml
+
+    # Check if we should load from file
+    if completion_file and completion_file.exists():
+        with open(completion_file) as f:
+            if completion_file.suffix in (".yaml", ".yml"):
+                data = yaml.safe_load(f)
+            else:
+                data = json.load(f)
+
+        # Parse completion spec from file
+        return _parse_completion_spec_from_dict(data)
+
+    # Check if any completion options are provided
+    has_completion = (
+        outcome
+        or acceptance_criteria
+        or coder_promise
+        or coder_verification
+        or reviewer_promise
+        or reviewer_verification
+        or tester_promise
+        or tester_verification
+        or qa_promise
+        or qa_verification
+    )
+
+    if not has_completion:
+        return None
+
+    # Build completion spec from CLI arguments
+    spec_outcome = outcome or f"Task completed: {task_title}"
+    spec_criteria = acceptance_criteria or []
+
+    # Build per-agent criteria
+    coder = None
+    if coder_promise or coder_verification or coder_command:
+        method = VerificationMethod(coder_verification) if coder_verification else VerificationMethod.EXTERNAL
+        config: dict[str, Any] = {}
+        if coder_command:
+            config["command"] = coder_command
+        coder = CompletionCriteria(
+            promise=coder_promise or "IMPLEMENTATION_COMPLETE",
+            description=f"Coder completed: {task_title}",
+            verification_method=method,
+            verification_config=config,
+        )
+
+    reviewer = None
+    if reviewer_promise or reviewer_verification:
+        method = VerificationMethod(reviewer_verification) if reviewer_verification else VerificationMethod.SEMANTIC
+        config = {}
+        if spec_criteria:
+            config["check_for"] = spec_criteria
+        reviewer = CompletionCriteria(
+            promise=reviewer_promise or "REVIEW_PASSED",
+            description=f"Review passed: {task_title}",
+            verification_method=method,
+            verification_config=config,
+        )
+
+    tester = None
+    if tester_promise or tester_verification or tester_command:
+        method = VerificationMethod(tester_verification) if tester_verification else VerificationMethod.EXTERNAL
+        config = {}
+        if tester_command:
+            config["command"] = tester_command
+        tester = CompletionCriteria(
+            promise=tester_promise or "TESTS_PASSED",
+            description=f"Tests passed: {task_title}",
+            verification_method=method,
+            verification_config=config,
+        )
+
+    qa = None
+    if qa_promise or qa_verification:
+        method = VerificationMethod(qa_verification) if qa_verification else VerificationMethod.MULTI_STAGE
+        config = {}
+        qa = CompletionCriteria(
+            promise=qa_promise or "QA_PASSED",
+            description=f"QA passed: {task_title}",
+            verification_method=method,
+            verification_config=config,
+        )
+
+    return TaskCompletionSpec(
+        outcome=spec_outcome,
+        acceptance_criteria=spec_criteria,
+        coder=coder,
+        reviewer=reviewer,
+        tester=tester,
+        qa=qa,
+    )
+
+
+def _parse_completion_spec_from_dict(data: dict[str, Any]) -> TaskCompletionSpec:
+    """Parse TaskCompletionSpec from a dictionary (YAML/JSON file).
+
+    Expected format:
+    ```yaml
+    outcome: "Feature is fully implemented"
+    acceptance_criteria:
+      - "All tests pass"
+      - "Code reviewed"
+    coder:
+      promise: "IMPLEMENTATION_COMPLETE"
+      verification_method: "external"
+      verification_config:
+        command: "pytest tests/"
+    reviewer:
+      promise: "REVIEW_PASSED"
+      verification_method: "semantic"
+    ```
+    """
+    def parse_criteria(agent_data: dict[str, Any] | None) -> CompletionCriteria | None:
+        if not agent_data:
+            return None
+        method_str = agent_data.get("verification_method", "string_match")
+        return CompletionCriteria(
+            promise=agent_data.get("promise", "STAGE_COMPLETE"),
+            description=agent_data.get("description", ""),
+            verification_method=VerificationMethod(method_str),
+            verification_config=agent_data.get("verification_config", {}),
+            max_iterations=agent_data.get("max_iterations"),
+        )
+
+    return TaskCompletionSpec(
+        outcome=data.get("outcome", "Task completed"),
+        acceptance_criteria=data.get("acceptance_criteria", []),
+        coder=parse_criteria(data.get("coder")),
+        reviewer=parse_criteria(data.get("reviewer")),
+        tester=parse_criteria(data.get("tester")),
+        qa=parse_criteria(data.get("qa")),
+    )
+
+
+def _validate_completion_criteria(spec: TaskCompletionSpec) -> list[str]:
+    """Validate completion criteria for common issues.
+
+    Returns:
+        List of validation warning messages (empty if all valid)
+    """
+    warnings = []
+
+    # Check external verification has command
+    for agent_name in ["coder", "reviewer", "tester", "qa"]:
+        criteria = spec.get_criteria_for_agent(agent_name)
+        if criteria:
+            if criteria.verification_method == VerificationMethod.EXTERNAL:
+                if not criteria.verification_config.get("command"):
+                    warnings.append(
+                        f"{agent_name}: external verification specified but no command provided"
+                    )
+            if criteria.verification_method == VerificationMethod.SEMANTIC:
+                if not criteria.verification_config.get("check_for"):
+                    # Not a warning - semantic can work without explicit check_for
+                    pass
+            if criteria.verification_method == VerificationMethod.MULTI_STAGE:
+                if not criteria.verification_config.get("stages"):
+                    warnings.append(
+                        f"{agent_name}: multi_stage verification specified but no stages defined"
+                    )
+
+    return warnings
+
+
 def cmd_task_create(
     task_id: str,
     spec_id: str,
@@ -1172,13 +1660,50 @@ def cmd_task_create(
     dependencies: str = "",
     assignee: str = "coder",
     json_output: bool = False,
+    # Completion options
+    outcome: str | None = None,
+    acceptance_criteria: list[str] | None = None,
+    completion_file: Path | None = None,
+    coder_promise: str | None = None,
+    coder_verification: str | None = None,
+    coder_command: str | None = None,
+    reviewer_promise: str | None = None,
+    reviewer_verification: str | None = None,
+    tester_promise: str | None = None,
+    tester_verification: str | None = None,
+    tester_command: str | None = None,
+    qa_promise: str | None = None,
+    qa_verification: str | None = None,
 ) -> int:
-    """Create a new task."""
+    """Create a new task with optional completion criteria."""
     try:
         project = Project.load()
 
         # Parse dependencies
         deps_list = [d.strip() for d in dependencies.split(",") if d.strip()]
+
+        # Build completion spec if any options provided
+        completion_spec = _build_completion_spec(
+            outcome=outcome,
+            acceptance_criteria=acceptance_criteria,
+            completion_file=completion_file,
+            coder_promise=coder_promise,
+            coder_verification=coder_verification,
+            coder_command=coder_command,
+            reviewer_promise=reviewer_promise,
+            reviewer_verification=reviewer_verification,
+            tester_promise=tester_promise,
+            tester_verification=tester_verification,
+            tester_command=tester_command,
+            qa_promise=qa_promise,
+            qa_verification=qa_verification,
+            task_title=title,
+        )
+
+        # Validate completion criteria
+        validation_warnings = []
+        if completion_spec:
+            validation_warnings = _validate_completion_criteria(completion_spec)
 
         # Create the task
         task = Task(
@@ -1195,15 +1720,19 @@ def cmd_task_create(
             created_at=datetime.now(),
             updated_at=datetime.now(),
             metadata={},
+            completion_spec=completion_spec,
         )
         project.db.create_task(task)
 
         if json_output:
-            result = {
+            result: dict[str, Any] = {
                 "success": True,
                 "task_id": task_id,
                 "task": task.to_dict(),
+                "has_completion_spec": completion_spec is not None,
             }
+            if validation_warnings:
+                result["validation_warnings"] = validation_warnings
             print(json.dumps(result, indent=2))
         else:
             print(f"Created task: {task_id}")
@@ -1212,6 +1741,15 @@ def cmd_task_create(
             print(f"  Priority: {priority}")
             if deps_list:
                 print(f"  Dependencies: {', '.join(deps_list)}")
+            if completion_spec:
+                print(f"  Ralph Loop: Enabled")
+                print(f"  Outcome: {completion_spec.outcome}")
+                if completion_spec.acceptance_criteria:
+                    print(f"  Acceptance Criteria: {len(completion_spec.acceptance_criteria)}")
+            if validation_warnings:
+                print("\n  Warnings:")
+                for warning in validation_warnings:
+                    print(f"    - {warning}")
         return 0
     except FileNotFoundError:
         if json_output:
@@ -1238,8 +1776,14 @@ def cmd_task_followup(
     parent: str | None = None,
     category: str | None = None,
     json_output: bool = False,
+    # Completion options
+    outcome: str | None = None,
+    acceptance_criteria: list[str] | None = None,
+    coder_promise: str | None = None,
+    coder_verification: str | None = None,
+    coder_command: str | None = None,
 ) -> int:
-    """Create a follow-up task (used by agents during implementation)."""
+    """Create a follow-up task with optional completion criteria."""
     try:
         project = Project.load()
 
@@ -1247,7 +1791,7 @@ def cmd_task_followup(
         existing = project.db.get_task(task_id)
         if existing:
             if json_output:
-                result = {
+                result: dict[str, Any] = {
                     "success": False,
                     "error": f"Task already exists: {task_id}",
                     "existing_task": existing.to_dict(),
@@ -1276,7 +1820,7 @@ def cmd_task_followup(
                 category = "followup"  # Generic fallback
 
         # Build metadata for tracking
-        metadata = {
+        metadata: dict[str, Any] = {
             "is_followup": True,
             "category": category,
         }
@@ -1286,6 +1830,17 @@ def cmd_task_followup(
             parent_task = project.db.get_task(parent)
             if parent_task and parent_task.assignee:
                 metadata["created_by_agent"] = parent_task.assignee
+
+        # Build completion spec if any options provided
+        completion_spec = _build_completion_spec(
+            outcome=outcome,
+            acceptance_criteria=acceptance_criteria,
+            completion_file=None,
+            coder_promise=coder_promise,
+            coder_verification=coder_verification,
+            coder_command=coder_command,
+            task_title=title,
+        )
 
         # Create the follow-up task
         task = Task(
@@ -1302,6 +1857,7 @@ def cmd_task_followup(
             created_at=datetime.now(),
             updated_at=datetime.now(),
             metadata=metadata,
+            completion_spec=completion_spec,
         )
         project.db.create_task(task)
 
@@ -1312,6 +1868,7 @@ def cmd_task_followup(
                 "category": category,
                 "parent": parent,
                 "task": task.to_dict(),
+                "has_completion_spec": completion_spec is not None,
             }
             print(json.dumps(result, indent=2))
         else:
@@ -1322,6 +1879,8 @@ def cmd_task_followup(
             print(f"  Priority: {priority}")
             if parent:
                 print(f"  Parent: {parent}")
+            if completion_spec:
+                print(f"  Ralph Loop: Enabled")
         return 0
     except FileNotFoundError:
         if json_output:

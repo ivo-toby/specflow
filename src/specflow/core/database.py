@@ -296,6 +296,60 @@ class ActiveAgent:
         }
 
 
+@dataclass
+class ActiveRalphLoop:
+    """An active Ralph verification loop.
+
+    Tracks the state of a running Ralph loop for database persistence.
+    This allows loop state to be visible to CLI commands and TUI.
+    """
+
+    id: int
+    task_id: str
+    agent_type: str
+    iteration: int
+    max_iterations: int
+    started_at: datetime
+    updated_at: datetime
+    verification_results: list[dict[str, Any]]
+    status: str  # running, completed, cancelled, failed
+
+    @property
+    def elapsed_seconds(self) -> float:
+        """Get elapsed time since loop started."""
+        return (datetime.now() - self.started_at).total_seconds()
+
+    @property
+    def progress_percent(self) -> float:
+        """Get progress as percentage."""
+        if self.max_iterations <= 0:
+            return 0.0
+        return min(100.0, (self.iteration / self.max_iterations) * 100)
+
+    @property
+    def last_verification(self) -> dict[str, Any] | None:
+        """Get the most recent verification result."""
+        if self.verification_results:
+            return self.verification_results[-1]
+        return None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "agent_type": self.agent_type,
+            "iteration": self.iteration,
+            "max_iterations": self.max_iterations,
+            "started_at": self.started_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "verification_results": self.verification_results,
+            "status": self.status,
+            "elapsed_seconds": self.elapsed_seconds,
+            "progress_percent": self.progress_percent,
+        }
+
+
 SCHEMA_SQL = """
 -- Specifications table
 CREATE TABLE IF NOT EXISTS specs (
@@ -426,6 +480,29 @@ CREATE INDEX IF NOT EXISTS idx_task_agent_criteria_agent ON task_agent_criteria(
 INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (4, datetime('now'));
 """
 
+MIGRATION_V5_SQL = """
+-- Active Ralph loops table for tracking running verification loops
+CREATE TABLE IF NOT EXISTS active_ralph_loops (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    agent_type TEXT NOT NULL,
+    iteration INTEGER NOT NULL DEFAULT 0,
+    max_iterations INTEGER NOT NULL DEFAULT 10,
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    verification_results TEXT DEFAULT '[]',  -- JSON array of verification attempts
+    status TEXT NOT NULL DEFAULT 'running',  -- running, completed, cancelled, failed
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    UNIQUE (task_id, agent_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_active_ralph_loops_task ON active_ralph_loops(task_id);
+CREATE INDEX IF NOT EXISTS idx_active_ralph_loops_status ON active_ralph_loops(status);
+
+-- Update schema version
+INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (5, datetime('now'));
+"""
+
 
 class Database:
     """SQLite database for SpecFlow."""
@@ -477,6 +554,11 @@ class Database:
         # Migration v4: Add Ralph loop completion specs tables
         if current_version < 4:
             self.conn.executescript(MIGRATION_V4_SQL)
+            self.conn.commit()
+
+        # Migration v5: Add active Ralph loops table
+        if current_version < 5:
+            self.conn.executescript(MIGRATION_V5_SQL)
             self.conn.commit()
 
     def close(self) -> None:
@@ -1117,3 +1199,211 @@ class Database:
                 )
 
         return tasks
+
+    # Ralph loop operations
+    def register_ralph_loop(
+        self,
+        task_id: str,
+        agent_type: str,
+        max_iterations: int = 10,
+    ) -> int:
+        """Register an active Ralph loop.
+
+        Args:
+            task_id: ID of the task being executed
+            agent_type: Type of agent (coder, reviewer, tester, qa)
+            max_iterations: Maximum iterations before failure
+
+        Returns:
+            The loop ID
+        """
+        now = datetime.now().isoformat()
+        with self.transaction() as cursor:
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO active_ralph_loops
+                    (task_id, agent_type, iteration, max_iterations,
+                     started_at, updated_at, verification_results, status)
+                VALUES (?, ?, 0, ?, ?, ?, '[]', 'running')
+                """,
+                (task_id, agent_type, max_iterations, now, now),
+            )
+            return cursor.lastrowid or 0
+
+    def update_ralph_loop(
+        self,
+        task_id: str,
+        agent_type: str,
+        iteration: int | None = None,
+        status: str | None = None,
+        verification_result: dict[str, Any] | None = None,
+    ) -> bool:
+        """Update an active Ralph loop.
+
+        Args:
+            task_id: ID of the task
+            agent_type: Type of agent
+            iteration: New iteration count (optional)
+            status: New status (optional)
+            verification_result: New verification result to append (optional)
+
+        Returns:
+            True if loop was updated
+        """
+        # First get current state
+        loop = self.get_ralph_loop(task_id, agent_type)
+        if not loop:
+            return False
+
+        now = datetime.now().isoformat()
+        new_iteration = iteration if iteration is not None else loop.iteration
+        new_status = status if status is not None else loop.status
+        results = loop.verification_results
+        if verification_result:
+            results.append(verification_result)
+
+        with self.transaction() as cursor:
+            cursor.execute(
+                """
+                UPDATE active_ralph_loops
+                SET iteration = ?, status = ?, updated_at = ?, verification_results = ?
+                WHERE task_id = ? AND agent_type = ?
+                """,
+                (
+                    new_iteration,
+                    new_status,
+                    now,
+                    json.dumps(results),
+                    task_id,
+                    agent_type,
+                ),
+            )
+            return cursor.rowcount > 0
+
+    def get_ralph_loop(
+        self, task_id: str, agent_type: str | None = None
+    ) -> ActiveRalphLoop | None:
+        """Get an active Ralph loop for a task.
+
+        Args:
+            task_id: ID of the task
+            agent_type: Type of agent (optional - returns first match if not specified)
+
+        Returns:
+            ActiveRalphLoop or None
+        """
+        if agent_type:
+            cursor = self.conn.execute(
+                "SELECT * FROM active_ralph_loops WHERE task_id = ? AND agent_type = ?",
+                (task_id, agent_type),
+            )
+        else:
+            cursor = self.conn.execute(
+                "SELECT * FROM active_ralph_loops WHERE task_id = ? ORDER BY id DESC LIMIT 1",
+                (task_id,),
+            )
+        row = cursor.fetchone()
+        return self._row_to_ralph_loop(row) if row else None
+
+    def list_ralph_loops(self, status: str | None = None) -> list[ActiveRalphLoop]:
+        """List all active Ralph loops.
+
+        Args:
+            status: Optional status filter (running, completed, cancelled, failed)
+
+        Returns:
+            List of ActiveRalphLoop objects
+        """
+        if status:
+            cursor = self.conn.execute(
+                "SELECT * FROM active_ralph_loops WHERE status = ? ORDER BY updated_at DESC",
+                (status,),
+            )
+        else:
+            cursor = self.conn.execute(
+                "SELECT * FROM active_ralph_loops ORDER BY updated_at DESC"
+            )
+        return [self._row_to_ralph_loop(row) for row in cursor.fetchall()]
+
+    def cancel_ralph_loop(self, task_id: str, agent_type: str | None = None) -> bool:
+        """Cancel an active Ralph loop.
+
+        Args:
+            task_id: ID of the task
+            agent_type: Type of agent (optional - cancels all if not specified)
+
+        Returns:
+            True if any loops were cancelled
+        """
+        now = datetime.now().isoformat()
+        with self.transaction() as cursor:
+            if agent_type:
+                cursor.execute(
+                    """
+                    UPDATE active_ralph_loops
+                    SET status = 'cancelled', updated_at = ?
+                    WHERE task_id = ? AND agent_type = ? AND status = 'running'
+                    """,
+                    (now, task_id, agent_type),
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE active_ralph_loops
+                    SET status = 'cancelled', updated_at = ?
+                    WHERE task_id = ? AND status = 'running'
+                    """,
+                    (now, task_id),
+                )
+            return cursor.rowcount > 0
+
+    def complete_ralph_loop(
+        self, task_id: str, agent_type: str, success: bool = True
+    ) -> bool:
+        """Mark a Ralph loop as completed.
+
+        Args:
+            task_id: ID of the task
+            agent_type: Type of agent
+            success: Whether the loop completed successfully
+
+        Returns:
+            True if loop was updated
+        """
+        status = "completed" if success else "failed"
+        return self.update_ralph_loop(task_id, agent_type, status=status)
+
+    def cleanup_stale_ralph_loops(self, max_age_hours: int = 24) -> int:
+        """Remove Ralph loops older than max_age_hours.
+
+        Args:
+            max_age_hours: Maximum age in hours before cleanup
+
+        Returns:
+            Number of loops cleaned up
+        """
+        cutoff = datetime.now()
+        cutoff = cutoff.replace(hour=cutoff.hour - max_age_hours)
+        with self.transaction() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM active_ralph_loops
+                WHERE updated_at < ? AND status != 'running'
+                """,
+                (cutoff.isoformat(),),
+            )
+            return cursor.rowcount
+
+    def _row_to_ralph_loop(self, row: sqlite3.Row) -> ActiveRalphLoop:
+        """Convert a database row to an ActiveRalphLoop object."""
+        return ActiveRalphLoop(
+            id=row["id"],
+            task_id=row["task_id"],
+            agent_type=row["agent_type"],
+            iteration=row["iteration"],
+            max_iterations=row["max_iterations"],
+            started_at=datetime.fromisoformat(row["started_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+            verification_results=json.loads(row["verification_results"] or "[]"),
+            status=row["status"],
+        )

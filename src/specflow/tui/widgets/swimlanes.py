@@ -11,7 +11,7 @@ from textual.message import Message
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, Footer, Header, Label, Static, TextArea, Select
 
-from specflow.core.database import Task, TaskStatus
+from specflow.core.database import ActiveRalphLoop, Task, TaskStatus
 
 
 class TaskCard(Static, can_focus=True):
@@ -60,6 +60,10 @@ class TaskCard(Static, can_focus=True):
     TaskCard .task-category {
         color: $warning;
     }
+
+    TaskCard .task-ralph {
+        color: $success;
+    }
     """
 
     BINDINGS = [
@@ -93,11 +97,17 @@ class TaskCard(Static, can_focus=True):
             self.task_data = task_data
             super().__init__()
 
-    def __init__(self, task_data: Task, is_blocked: bool = False) -> None:
+    def __init__(
+        self,
+        task_data: Task,
+        is_blocked: bool = False,
+        ralph_loop: ActiveRalphLoop | None = None,
+    ) -> None:
         self._task_data = task_data
         self._is_blocked = is_blocked
         self._is_followup = task_data.metadata.get("is_followup", False)
         self._category = task_data.metadata.get("category", "")
+        self._ralph_loop = ralph_loop
         super().__init__()
         if is_blocked:
             self.add_class("blocked")
@@ -123,10 +133,17 @@ class TaskCard(Static, can_focus=True):
             }
             category_badge = category_icons.get(self._category, f"[{self._category}]")
 
+        # Show Ralph loop status if active
+        ralph_badge = ""
+        if self._ralph_loop and self._ralph_loop.status == "running":
+            iteration = self._ralph_loop.iteration
+            max_iter = self._ralph_loop.max_iterations
+            ralph_badge = f" [green]⟳{iteration}/{max_iter}[/green]"
+
         yield Static(f"[b]{self._task_data.id}[/b]", classes="task-id")
         yield Static(self._task_data.title[:30], classes="task-title")
-        if category_badge:
-            yield Static(f"{priority} {category_badge}{blocked_icon}", classes="task-meta")
+        if category_badge or ralph_badge:
+            yield Static(f"{priority} {category_badge}{ralph_badge}{blocked_icon}", classes="task-meta")
         else:
             yield Static(f"{priority}{blocked_icon}", classes="task-meta")
 
@@ -244,7 +261,8 @@ class SwimLane(Vertical, can_focus=True):
         with VerticalScroll(classes="lane-content"):
             for task in self.tasks:
                 is_blocked = self.db.is_task_blocked(task) if self.db else False
-                yield TaskCard(task, is_blocked=is_blocked)
+                ralph_loop = self.db.get_ralph_loop(task.id) if self.db else None
+                yield TaskCard(task, is_blocked=is_blocked, ralph_loop=ralph_loop)
 
     def refresh_tasks(self, tasks: list[Task]) -> None:
         """Refresh the tasks in this lane."""
@@ -270,7 +288,8 @@ class SwimLane(Vertical, can_focus=True):
         scroll.remove_children()
         for task in tasks:
             is_blocked = self.db.is_task_blocked(task) if self.db else False
-            scroll.mount(TaskCard(task, is_blocked=is_blocked))
+            ralph_loop = self.db.get_ralph_loop(task.id) if self.db else None
+            scroll.mount(TaskCard(task, is_blocked=is_blocked, ralph_loop=ralph_loop))
 
     def focus_first_card(self) -> None:
         """Focus the first task card in this lane."""
@@ -310,7 +329,7 @@ class TaskDetailModal(ModalScreen):
     }
 
     TaskDetailModal #task-detail-description {
-        height: 30;
+        height: 20;
         width: 100%;
         border: solid $secondary;
         background: $surface-darken-1;
@@ -322,6 +341,23 @@ class TaskDetailModal(ModalScreen):
         background: $surface-darken-1;
         margin-top: 1;
         border: solid $secondary-darken-1;
+    }
+
+    TaskDetailModal #task-detail-completion {
+        height: auto;
+        max-height: 12;
+        padding: 1;
+        background: $success-darken-3;
+        margin-top: 1;
+        border: solid $success-darken-1;
+    }
+
+    TaskDetailModal #task-detail-ralph {
+        height: auto;
+        padding: 1;
+        background: $warning-darken-3;
+        margin-top: 1;
+        border: solid $warning-darken-1;
     }
 
     TaskDetailModal #task-detail-logs {
@@ -348,9 +384,15 @@ class TaskDetailModal(ModalScreen):
         Binding("e", "edit", "Edit"),
     ]
 
-    def __init__(self, task_data: Task, execution_logs: list = None) -> None:
+    def __init__(
+        self,
+        task_data: Task,
+        execution_logs: list = None,
+        ralph_loop: ActiveRalphLoop | None = None,
+    ) -> None:
         self._task_data = task_data
         self._execution_logs = execution_logs or []
+        self._ralph_loop = ralph_loop
         super().__init__()
 
     def compose(self) -> ComposeResult:
@@ -381,6 +423,52 @@ class TaskDetailModal(ModalScreen):
                         yield Static(f"[b]Parent Task:[/b] {parent}")
                     if created_by:
                         yield Static(f"[b]Created By:[/b] {created_by} agent")
+
+            # Completion criteria section
+            if self._task_data.completion_spec:
+                spec = self._task_data.completion_spec
+                with Container(id="task-detail-completion"):
+                    yield Static("[b]✓ Completion Criteria[/b]")
+                    if spec.outcome:
+                        yield Static(f"[b]Outcome:[/b] {spec.outcome}")
+                    if spec.acceptance_criteria:
+                        yield Static("[b]Acceptance Criteria:[/b]")
+                        for criterion in spec.acceptance_criteria[:5]:
+                            yield Static(f"  • {criterion[:60]}")
+                    # Show agent-specific criteria
+                    agents_with_criteria = []
+                    if spec.coder:
+                        agents_with_criteria.append(f"coder ({spec.coder.verification_method.value})")
+                    if spec.reviewer:
+                        agents_with_criteria.append(f"reviewer ({spec.reviewer.verification_method.value})")
+                    if spec.tester:
+                        agents_with_criteria.append(f"tester ({spec.tester.verification_method.value})")
+                    if spec.qa:
+                        agents_with_criteria.append(f"qa ({spec.qa.verification_method.value})")
+                    if agents_with_criteria:
+                        yield Static(f"[b]Agent Verification:[/b] {', '.join(agents_with_criteria)}")
+
+            # Ralph loop status section
+            if self._ralph_loop:
+                loop = self._ralph_loop
+                with Container(id="task-detail-ralph"):
+                    status_icons = {
+                        "running": "[yellow]⟳ RUNNING[/yellow]",
+                        "completed": "[green]✓ COMPLETED[/green]",
+                        "cancelled": "[red]✗ CANCELLED[/red]",
+                        "failed": "[red]✗ FAILED[/red]",
+                    }
+                    status_str = status_icons.get(loop.status, loop.status.upper())
+                    yield Static(f"[b]Ralph Loop Status:[/b] {status_str}")
+                    yield Static(f"[b]Agent:[/b] {loop.agent_type}")
+                    yield Static(f"[b]Progress:[/b] {loop.iteration}/{loop.max_iterations} ({loop.progress_percent:.0f}%)")
+                    mins = int(loop.elapsed_seconds // 60)
+                    secs = int(loop.elapsed_seconds % 60)
+                    yield Static(f"[b]Elapsed:[/b] {mins}m {secs}s")
+                    if loop.last_verification:
+                        last = loop.last_verification
+                        verified = "✓" if last.get("verified") else "✗"
+                        yield Static(f"[b]Last Verification:[/b] {verified} {last.get('reason', 'N/A')[:40]}")
 
             # Execution logs
             if self._execution_logs:
@@ -725,13 +813,14 @@ class SwimlaneBoard(Container):
         task_data = event.task_data
         db = self.app.project.db
         logs = db.get_execution_logs(task_data.id)
+        ralph_loop = db.get_ralph_loop(task_data.id)
 
         def handle_detail_result(result: Task | None) -> None:
             if result is not None:
                 # User clicked Edit in detail modal
                 self.app.push_screen(TaskEditModal(result), self._handle_edit_result)
 
-        self.app.push_screen(TaskDetailModal(task_data, logs), handle_detail_result)
+        self.app.push_screen(TaskDetailModal(task_data, logs, ralph_loop), handle_detail_result)
 
     @on(TaskCard.EditRequested)
     def on_task_edit_requested(self, event: TaskCard.EditRequested) -> None:

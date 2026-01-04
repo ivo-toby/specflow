@@ -39,8 +39,22 @@ from specflow.cli import (
     cmd_worktree_commit,
     cmd_merge_task,
     cmd_tui,
+    cmd_ralph_status,
+    cmd_ralph_cancel,
+    _build_completion_spec,
+    _parse_completion_spec_from_dict,
+    _validate_completion_criteria,
 )
-from specflow.core.database import Spec, SpecStatus, Task, TaskStatus
+from specflow.core.database import (
+    ActiveRalphLoop,
+    CompletionCriteria,
+    Spec,
+    SpecStatus,
+    Task,
+    TaskCompletionSpec,
+    TaskStatus,
+    VerificationMethod,
+)
 from specflow.core.project import Project
 
 
@@ -903,3 +917,898 @@ class TestErrorHandling:
         assert result == 1
         assert output["success"] is False
         assert "error" in output
+
+
+class TestBuildCompletionSpec:
+    """Tests for _build_completion_spec helper function."""
+
+    def test_returns_none_when_no_options(self):
+        """Test that None is returned when no completion options provided."""
+        result = _build_completion_spec(
+            outcome=None,
+            acceptance_criteria=None,
+            completion_file=None,
+        )
+        assert result is None
+
+    def test_builds_spec_with_outcome_only(self):
+        """Test building spec with just outcome."""
+        result = _build_completion_spec(
+            outcome="Feature implemented",
+            acceptance_criteria=None,
+            completion_file=None,
+        )
+        assert result is not None
+        assert result.outcome == "Feature implemented"
+        assert result.acceptance_criteria == []
+
+    def test_builds_spec_with_acceptance_criteria(self):
+        """Test building spec with acceptance criteria."""
+        result = _build_completion_spec(
+            outcome="Task complete",
+            acceptance_criteria=["Tests pass", "Code reviewed"],
+            completion_file=None,
+        )
+        assert result is not None
+        assert result.acceptance_criteria == ["Tests pass", "Code reviewed"]
+
+    def test_builds_spec_with_coder_options(self):
+        """Test building spec with coder completion options."""
+        result = _build_completion_spec(
+            outcome=None,
+            acceptance_criteria=None,
+            completion_file=None,
+            coder_promise="IMPLEMENTATION_DONE",
+            coder_verification="external",
+            coder_command="pytest tests/",
+            task_title="Test Task",
+        )
+        assert result is not None
+        assert result.coder is not None
+        assert result.coder.promise == "IMPLEMENTATION_DONE"
+        assert result.coder.verification_method == VerificationMethod.EXTERNAL
+        assert result.coder.verification_config.get("command") == "pytest tests/"
+
+    def test_builds_spec_with_reviewer_options(self):
+        """Test building spec with reviewer completion options."""
+        result = _build_completion_spec(
+            outcome=None,
+            acceptance_criteria=["Code is clean"],
+            completion_file=None,
+            reviewer_promise="REVIEW_COMPLETE",
+            reviewer_verification="semantic",
+            task_title="Review Task",
+        )
+        assert result is not None
+        assert result.reviewer is not None
+        assert result.reviewer.promise == "REVIEW_COMPLETE"
+        assert result.reviewer.verification_method == VerificationMethod.SEMANTIC
+        # Semantic reviewer should include acceptance criteria in check_for
+        assert result.reviewer.verification_config.get("check_for") == ["Code is clean"]
+
+    def test_builds_spec_with_tester_options(self):
+        """Test building spec with tester completion options."""
+        result = _build_completion_spec(
+            outcome=None,
+            acceptance_criteria=None,
+            completion_file=None,
+            tester_promise="ALL_TESTS_GREEN",
+            tester_verification="external",
+            tester_command="pytest",
+            task_title="Test Task",
+        )
+        assert result is not None
+        assert result.tester is not None
+        assert result.tester.promise == "ALL_TESTS_GREEN"
+        assert result.tester.verification_method == VerificationMethod.EXTERNAL
+        assert result.tester.verification_config.get("command") == "pytest"
+
+    def test_builds_spec_with_qa_options(self):
+        """Test building spec with QA completion options."""
+        result = _build_completion_spec(
+            outcome=None,
+            acceptance_criteria=None,
+            completion_file=None,
+            qa_promise="QA_APPROVED",
+            qa_verification="multi_stage",
+            task_title="QA Task",
+        )
+        assert result is not None
+        assert result.qa is not None
+        assert result.qa.promise == "QA_APPROVED"
+        assert result.qa.verification_method == VerificationMethod.MULTI_STAGE
+
+    def test_builds_spec_with_all_agents(self):
+        """Test building spec with all agent types."""
+        result = _build_completion_spec(
+            outcome="Complete implementation",
+            acceptance_criteria=["Unit tests", "Integration tests"],
+            completion_file=None,
+            coder_promise="CODE_DONE",
+            coder_verification="external",
+            coder_command="make build",
+            reviewer_promise="REVIEW_OK",
+            reviewer_verification="semantic",
+            tester_promise="TESTS_PASS",
+            tester_verification="external",
+            tester_command="make test",
+            qa_promise="QA_PASS",
+            qa_verification="multi_stage",
+            task_title="Full Task",
+        )
+        assert result is not None
+        assert result.coder is not None
+        assert result.reviewer is not None
+        assert result.tester is not None
+        assert result.qa is not None
+
+    def test_default_verification_methods(self):
+        """Test default verification methods for each agent type."""
+        result = _build_completion_spec(
+            outcome=None,
+            acceptance_criteria=None,
+            completion_file=None,
+            coder_promise="X",
+            reviewer_promise="Y",
+            tester_promise="Z",
+            qa_promise="W",
+        )
+        assert result.coder.verification_method == VerificationMethod.EXTERNAL
+        assert result.reviewer.verification_method == VerificationMethod.SEMANTIC
+        assert result.tester.verification_method == VerificationMethod.EXTERNAL
+        assert result.qa.verification_method == VerificationMethod.MULTI_STAGE
+
+    def test_default_promise_strings(self):
+        """Test default promise strings when only verification is specified."""
+        result = _build_completion_spec(
+            outcome=None,
+            acceptance_criteria=None,
+            completion_file=None,
+            coder_verification="string_match",
+        )
+        assert result.coder.promise == "IMPLEMENTATION_COMPLETE"
+
+    def test_loads_from_yaml_file(self, temp_dir):
+        """Test loading completion spec from YAML file."""
+        yaml_content = """
+outcome: "Feature fully implemented"
+acceptance_criteria:
+  - "All tests pass"
+  - "Code reviewed"
+coder:
+  promise: "CODER_DONE"
+  verification_method: "external"
+  verification_config:
+    command: "pytest"
+reviewer:
+  promise: "REVIEW_DONE"
+  verification_method: "semantic"
+"""
+        yaml_file = temp_dir / "completion.yaml"
+        yaml_file.write_text(yaml_content)
+
+        result = _build_completion_spec(
+            outcome=None,
+            acceptance_criteria=None,
+            completion_file=yaml_file,
+        )
+
+        assert result is not None
+        assert result.outcome == "Feature fully implemented"
+        assert len(result.acceptance_criteria) == 2
+        assert result.coder.promise == "CODER_DONE"
+        assert result.coder.verification_config.get("command") == "pytest"
+        assert result.reviewer.promise == "REVIEW_DONE"
+
+    def test_loads_from_json_file(self, temp_dir):
+        """Test loading completion spec from JSON file."""
+        json_content = {
+            "outcome": "JSON task complete",
+            "acceptance_criteria": ["Criterion 1"],
+            "tester": {
+                "promise": "TESTS_PASS",
+                "verification_method": "external",
+                "verification_config": {"command": "npm test"},
+            },
+        }
+        json_file = temp_dir / "completion.json"
+        json_file.write_text(json.dumps(json_content))
+
+        result = _build_completion_spec(
+            outcome=None,
+            acceptance_criteria=None,
+            completion_file=json_file,
+        )
+
+        assert result is not None
+        assert result.outcome == "JSON task complete"
+        assert result.tester.promise == "TESTS_PASS"
+        assert result.tester.verification_config.get("command") == "npm test"
+
+
+class TestParseCompletionSpecFromDict:
+    """Tests for _parse_completion_spec_from_dict helper function."""
+
+    def test_parses_minimal_dict(self):
+        """Test parsing minimal dictionary."""
+        data = {"outcome": "Task done"}
+        result = _parse_completion_spec_from_dict(data)
+
+        assert result.outcome == "Task done"
+        assert result.acceptance_criteria == []
+        assert result.coder is None
+
+    def test_parses_full_dict(self):
+        """Test parsing dictionary with all fields."""
+        data = {
+            "outcome": "Complete implementation",
+            "acceptance_criteria": ["Tests pass", "Docs updated"],
+            "coder": {
+                "promise": "CODE_COMPLETE",
+                "description": "Code is done",
+                "verification_method": "external",
+                "verification_config": {"command": "make check"},
+                "max_iterations": 5,
+            },
+            "reviewer": {
+                "promise": "REVIEW_OK",
+                "verification_method": "semantic",
+            },
+            "tester": {
+                "promise": "TESTS_GREEN",
+                "verification_method": "external",
+                "verification_config": {"command": "pytest"},
+            },
+            "qa": {
+                "promise": "QA_APPROVED",
+                "verification_method": "multi_stage",
+            },
+        }
+        result = _parse_completion_spec_from_dict(data)
+
+        assert result.outcome == "Complete implementation"
+        assert len(result.acceptance_criteria) == 2
+        assert result.coder.promise == "CODE_COMPLETE"
+        assert result.coder.description == "Code is done"
+        assert result.coder.verification_method == VerificationMethod.EXTERNAL
+        assert result.coder.verification_config.get("command") == "make check"
+        assert result.coder.max_iterations == 5
+        assert result.reviewer.promise == "REVIEW_OK"
+        assert result.tester.promise == "TESTS_GREEN"
+        assert result.qa.promise == "QA_APPROVED"
+
+    def test_parses_empty_dict(self):
+        """Test parsing empty dictionary."""
+        data = {}
+        result = _parse_completion_spec_from_dict(data)
+
+        assert result.outcome == "Task completed"
+        assert result.acceptance_criteria == []
+
+    def test_default_verification_method(self):
+        """Test default verification method when not specified."""
+        data = {
+            "coder": {"promise": "DONE"},
+        }
+        result = _parse_completion_spec_from_dict(data)
+
+        assert result.coder.verification_method == VerificationMethod.STRING_MATCH
+
+    def test_default_promise_string(self):
+        """Test default promise string when not specified."""
+        data = {
+            "coder": {"verification_method": "external"},
+        }
+        result = _parse_completion_spec_from_dict(data)
+
+        assert result.coder.promise == "STAGE_COMPLETE"
+
+
+class TestValidateCompletionCriteria:
+    """Tests for _validate_completion_criteria helper function."""
+
+    def test_valid_spec_returns_empty_warnings(self):
+        """Test that valid spec returns no warnings."""
+        spec = TaskCompletionSpec(
+            outcome="Task complete",
+            acceptance_criteria=["Test 1"],
+            coder=CompletionCriteria(
+                promise="DONE",
+                description="Coder completion",
+                verification_method=VerificationMethod.EXTERNAL,
+                verification_config={"command": "make test"},
+            ),
+        )
+        warnings = _validate_completion_criteria(spec)
+        assert warnings == []
+
+    def test_warns_external_without_command(self):
+        """Test warning for external verification without command."""
+        spec = TaskCompletionSpec(
+            outcome="Task complete",
+            acceptance_criteria=[],
+            coder=CompletionCriteria(
+                promise="DONE",
+                description="Coder completion",
+                verification_method=VerificationMethod.EXTERNAL,
+                verification_config={},  # No command
+            ),
+        )
+        warnings = _validate_completion_criteria(spec)
+
+        assert len(warnings) == 1
+        assert "coder" in warnings[0]
+        assert "external" in warnings[0]
+        assert "command" in warnings[0]
+
+    def test_warns_multi_stage_without_stages(self):
+        """Test warning for multi_stage verification without stages."""
+        spec = TaskCompletionSpec(
+            outcome="Task complete",
+            acceptance_criteria=[],
+            qa=CompletionCriteria(
+                promise="QA_PASS",
+                description="QA completion",
+                verification_method=VerificationMethod.MULTI_STAGE,
+                verification_config={},  # No stages
+            ),
+        )
+        warnings = _validate_completion_criteria(spec)
+
+        assert len(warnings) == 1
+        assert "qa" in warnings[0]
+        assert "multi_stage" in warnings[0]
+        assert "stages" in warnings[0]
+
+    def test_no_warning_for_semantic_without_check_for(self):
+        """Test no warning for semantic verification without check_for."""
+        spec = TaskCompletionSpec(
+            outcome="Task complete",
+            acceptance_criteria=[],
+            reviewer=CompletionCriteria(
+                promise="REVIEW_OK",
+                description="Review completion",
+                verification_method=VerificationMethod.SEMANTIC,
+                verification_config={},  # No check_for - this is OK
+            ),
+        )
+        warnings = _validate_completion_criteria(spec)
+        assert warnings == []
+
+    def test_multiple_warnings(self):
+        """Test multiple warnings for multiple issues."""
+        spec = TaskCompletionSpec(
+            outcome="Task complete",
+            acceptance_criteria=[],
+            coder=CompletionCriteria(
+                promise="CODE",
+                description="Coder",
+                verification_method=VerificationMethod.EXTERNAL,
+                verification_config={},
+            ),
+            tester=CompletionCriteria(
+                promise="TEST",
+                description="Tester",
+                verification_method=VerificationMethod.EXTERNAL,
+                verification_config={},
+            ),
+            qa=CompletionCriteria(
+                promise="QA",
+                description="QA",
+                verification_method=VerificationMethod.MULTI_STAGE,
+                verification_config={},
+            ),
+        )
+        warnings = _validate_completion_criteria(spec)
+
+        assert len(warnings) == 3
+        assert any("coder" in w for w in warnings)
+        assert any("tester" in w for w in warnings)
+        assert any("qa" in w for w in warnings)
+
+    def test_valid_multi_stage_with_stages(self):
+        """Test no warning when multi_stage has stages defined."""
+        spec = TaskCompletionSpec(
+            outcome="Task complete",
+            acceptance_criteria=[],
+            qa=CompletionCriteria(
+                promise="QA",
+                description="QA completion",
+                verification_method=VerificationMethod.MULTI_STAGE,
+                verification_config={
+                    "stages": [
+                        {"name": "lint", "command": "pylint"},
+                        {"name": "test", "command": "pytest"},
+                    ]
+                },
+            ),
+        )
+        warnings = _validate_completion_criteria(spec)
+        assert warnings == []
+
+
+class TestTaskCreateWithCompletion:
+    """Tests for task-create command with completion options."""
+
+    def test_create_task_with_completion_options(self, cli_project_with_data):
+        """Test creating task with completion options."""
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_task_create(
+                task_id="TASK-COMP-001",
+                spec_id="test-spec-1",
+                title="Task with completion",
+                description="A task with Ralph Loop criteria",
+                priority=1,
+                dependencies="",
+                assignee="coder",
+                json_output=True,
+                outcome="Feature implemented",
+                acceptance_criteria=["Tests pass", "Code reviewed"],
+                completion_file=None,
+                coder_promise="CODE_DONE",
+                coder_verification="external",
+                coder_command="pytest",
+            )
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["success"] is True
+        assert output["has_completion_spec"] is True
+
+        # Verify task in database
+        task = cli_project_with_data.db.get_task("TASK-COMP-001")
+        assert task is not None
+        assert task.completion_spec is not None
+        assert task.completion_spec.outcome == "Feature implemented"
+        assert task.completion_spec.coder is not None
+        assert task.completion_spec.coder.promise == "CODE_DONE"
+
+    def test_create_task_without_completion(self, cli_project_with_data):
+        """Test creating task without completion options."""
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_task_create(
+                task_id="TASK-NO-COMP",
+                spec_id="test-spec-1",
+                title="Task without completion",
+                description="",
+                priority=2,
+                dependencies="",
+                assignee="coder",
+                json_output=True,
+            )
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["has_completion_spec"] is False
+
+    def test_create_task_with_validation_warnings(self, cli_project_with_data):
+        """Test creating task with validation warnings."""
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_task_create(
+                task_id="TASK-WARN-001",
+                spec_id="test-spec-1",
+                title="Task with warnings",
+                description="",
+                priority=2,
+                dependencies="",
+                assignee="coder",
+                json_output=True,
+                outcome="Test outcome",
+                coder_verification="external",  # External without command
+            )
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["success"] is True
+        assert "validation_warnings" in output
+        assert len(output["validation_warnings"]) > 0
+
+    def test_create_task_with_completion_file(self, cli_project_with_data, temp_dir):
+        """Test creating task with completion file."""
+        yaml_content = """
+outcome: "File-based completion"
+acceptance_criteria:
+  - "From file"
+coder:
+  promise: "FILE_DONE"
+  verification_method: "string_match"
+"""
+        comp_file = temp_dir / "task_completion.yaml"
+        comp_file.write_text(yaml_content)
+
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_task_create(
+                task_id="TASK-FILE-001",
+                spec_id="test-spec-1",
+                title="File completion task",
+                description="",
+                priority=2,
+                dependencies="",
+                assignee="coder",
+                json_output=True,
+                completion_file=comp_file,
+            )
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["has_completion_spec"] is True
+
+        task = cli_project_with_data.db.get_task("TASK-FILE-001")
+        assert task.completion_spec.outcome == "File-based completion"
+        assert task.completion_spec.coder.promise == "FILE_DONE"
+
+
+class TestTaskFollowupWithCompletion:
+    """Tests for task-followup command with completion options."""
+
+    def test_create_followup_with_completion(self, cli_project_with_data):
+        """Test creating follow-up task with completion options."""
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_task_followup(
+                task_id="TECH-DEBT-COMP",
+                spec_id="test-spec-1",
+                title="Tech debt with completion",
+                description="Fix technical debt",
+                priority=3,
+                parent="TASK-001",
+                category=None,
+                json_output=True,
+                outcome="Tech debt resolved",
+                acceptance_criteria=["Debt paid off"],
+                coder_promise="DEBT_FIXED",
+                coder_verification="external",
+                coder_command="make lint",
+            )
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["success"] is True
+        assert output["has_completion_spec"] is True
+        assert output["category"] == "tech-debt"
+
+        task = cli_project_with_data.db.get_task("TECH-DEBT-COMP")
+        assert task.completion_spec is not None
+        assert task.completion_spec.outcome == "Tech debt resolved"
+        assert task.completion_spec.coder.promise == "DEBT_FIXED"
+
+    def test_create_followup_without_completion(self, cli_project_with_data):
+        """Test creating follow-up without completion options."""
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_task_followup(
+                task_id="REFACTOR-NO-COMP",
+                spec_id="test-spec-1",
+                title="Refactor without completion",
+                description="",
+                priority=3,
+                parent=None,
+                category=None,
+                json_output=True,
+            )
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["has_completion_spec"] is False
+
+
+class TestMainWithCompletionOptions:
+    """Tests for main entry point with completion CLI arguments."""
+
+    def test_main_task_create_with_completion(self, cli_project_with_data):
+        """Test main with task-create and completion options."""
+        with patch("sys.argv", [
+            "specflow", "task-create", "TASK-CLI-COMP", "test-spec-1", "CLI completion task",
+            "--outcome", "Task done via CLI",
+            "--acceptance-criteria", "Criterion 1",
+            "--acceptance-criteria", "Criterion 2",
+            "--coder-promise", "CLI_CODE_DONE",
+            "--coder-verification", "external",
+            "--coder-command", "make test",
+        ]):
+            result = main()
+
+        assert result == 0
+
+        task = cli_project_with_data.db.get_task("TASK-CLI-COMP")
+        assert task is not None
+        assert task.completion_spec is not None
+        assert task.completion_spec.outcome == "Task done via CLI"
+        assert len(task.completion_spec.acceptance_criteria) == 2
+        assert task.completion_spec.coder.promise == "CLI_CODE_DONE"
+
+    def test_main_task_create_with_tester_command(self, cli_project_with_data):
+        """Test main with tester command option."""
+        with patch("sys.argv", [
+            "specflow", "task-create", "TASK-TESTER", "test-spec-1", "Tester task",
+            "--tester-command", "pytest tests/",
+            "--tester-verification", "external",
+        ]):
+            result = main()
+
+        assert result == 0
+
+        task = cli_project_with_data.db.get_task("TASK-TESTER")
+        assert task.completion_spec is not None
+        assert task.completion_spec.tester is not None
+        assert task.completion_spec.tester.verification_config.get("command") == "pytest tests/"
+
+    def test_main_task_followup_with_completion(self, cli_project_with_data):
+        """Test main with task-followup and completion options."""
+        with patch("sys.argv", [
+            "specflow", "task-followup", "DOC-CLI", "test-spec-1", "Documentation followup",
+            "--outcome", "Docs complete",
+            "--coder-promise", "DOCS_WRITTEN",
+        ]):
+            result = main()
+
+        assert result == 0
+
+        task = cli_project_with_data.db.get_task("DOC-CLI")
+        assert task.completion_spec is not None
+        assert task.completion_spec.outcome == "Docs complete"
+
+
+class TestRalphStatusCommand:
+    """Tests for ralph-status CLI command."""
+
+    def test_ralph_status_empty(self, cli_project):
+        """Test ralph-status when no loops exist."""
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_ralph_status(json_output=False)
+
+        assert result == 0
+        # Just verify it doesn't crash
+
+    def test_ralph_status_json_empty(self, cli_project):
+        """Test ralph-status JSON when no loops exist."""
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_ralph_status(json_output=True)
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["success"] is True
+        assert output["count"] == 0
+        assert output["loops"] == []
+
+    def test_ralph_status_with_loop(self, cli_project_with_data):
+        """Test ralph-status with an active loop."""
+        # Register a Ralph loop
+        cli_project_with_data.db.register_ralph_loop(
+            task_id="TASK-001",
+            agent_type="coder",
+            max_iterations=10,
+        )
+
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_ralph_status(json_output=True)
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["success"] is True
+        assert output["count"] == 1
+        assert len(output["loops"]) == 1
+        assert output["loops"][0]["task_id"] == "TASK-001"
+        assert output["loops"][0]["agent_type"] == "coder"
+        assert output["loops"][0]["status"] == "running"
+
+    def test_ralph_status_filter_by_task(self, cli_project_with_data):
+        """Test ralph-status filtered by task ID."""
+        # Register multiple loops
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+        cli_project_with_data.db.register_ralph_loop("TASK-002", "reviewer", 5)
+
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_ralph_status(task_id="TASK-001", json_output=True)
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["count"] == 1
+        assert output["loops"][0]["task_id"] == "TASK-001"
+
+    def test_ralph_status_filter_by_status(self, cli_project_with_data):
+        """Test ralph-status filtered by status."""
+        # Register and complete a loop
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+        cli_project_with_data.db.complete_ralph_loop("TASK-001", "coder", success=True)
+
+        # Register a running loop
+        cli_project_with_data.db.register_ralph_loop("TASK-002", "reviewer", 5)
+
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_ralph_status(status="running", json_output=True)
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["count"] == 1
+        assert output["loops"][0]["task_id"] == "TASK-002"
+
+
+class TestRalphCancelCommand:
+    """Tests for ralph-cancel CLI command."""
+
+    def test_ralph_cancel_nonexistent(self, cli_project):
+        """Test cancelling a non-existent loop."""
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_ralph_cancel(task_id="NONEXISTENT", json_output=True)
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 1
+        assert output["success"] is False
+        assert "No Ralph loop found" in output["error"]
+
+    def test_ralph_cancel_success(self, cli_project_with_data):
+        """Test successfully cancelling a loop."""
+        # Register a loop
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_ralph_cancel(task_id="TASK-001", json_output=True)
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["success"] is True
+        assert output["task_id"] == "TASK-001"
+
+        # Verify loop is cancelled
+        loop = cli_project_with_data.db.get_ralph_loop("TASK-001", "coder")
+        assert loop.status == "cancelled"
+
+    def test_ralph_cancel_specific_agent(self, cli_project_with_data):
+        """Test cancelling a specific agent's loop."""
+        # Register loops for multiple agents
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "reviewer", 5)
+
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_ralph_cancel(
+                task_id="TASK-001", agent_type="coder", json_output=True
+            )
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["success"] is True
+
+        # Verify only coder loop is cancelled
+        coder_loop = cli_project_with_data.db.get_ralph_loop("TASK-001", "coder")
+        reviewer_loop = cli_project_with_data.db.get_ralph_loop("TASK-001", "reviewer")
+        assert coder_loop.status == "cancelled"
+        assert reviewer_loop.status == "running"
+
+    def test_ralph_cancel_already_completed(self, cli_project_with_data):
+        """Test cancelling an already completed loop."""
+        # Register and complete a loop
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+        cli_project_with_data.db.complete_ralph_loop("TASK-001", "coder", success=True)
+
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            result = cmd_ralph_cancel(task_id="TASK-001", json_output=True)
+            output = json.loads(mock_stdout.getvalue())
+
+        assert result == 1
+        assert output["success"] is False
+        assert "not running" in output["error"]
+
+
+class TestRalphDatabaseOperations:
+    """Tests for Ralph loop database operations."""
+
+    def test_register_ralph_loop(self, cli_project_with_data):
+        """Test registering a new Ralph loop."""
+        loop_id = cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+        assert loop_id > 0
+
+        loop = cli_project_with_data.db.get_ralph_loop("TASK-001", "coder")
+        assert loop is not None
+        assert loop.task_id == "TASK-001"
+        assert loop.agent_type == "coder"
+        assert loop.iteration == 0
+        assert loop.max_iterations == 10
+        assert loop.status == "running"
+
+    def test_update_ralph_loop_iteration(self, cli_project_with_data):
+        """Test updating loop iteration."""
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+        cli_project_with_data.db.update_ralph_loop("TASK-001", "coder", iteration=5)
+
+        loop = cli_project_with_data.db.get_ralph_loop("TASK-001", "coder")
+        assert loop.iteration == 5
+
+    def test_update_ralph_loop_verification_result(self, cli_project_with_data):
+        """Test adding verification result to loop."""
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+        cli_project_with_data.db.update_ralph_loop(
+            "TASK-001",
+            "coder",
+            iteration=1,
+            verification_result={
+                "iteration": 1,
+                "promise_found": True,
+                "verified": False,
+                "reason": "Test failed",
+            },
+        )
+
+        loop = cli_project_with_data.db.get_ralph_loop("TASK-001", "coder")
+        assert len(loop.verification_results) == 1
+        assert loop.verification_results[0]["verified"] is False
+
+    def test_list_ralph_loops(self, cli_project_with_data):
+        """Test listing all Ralph loops."""
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+        cli_project_with_data.db.register_ralph_loop("TASK-002", "reviewer", 5)
+
+        loops = cli_project_with_data.db.list_ralph_loops()
+        assert len(loops) == 2
+
+    def test_list_ralph_loops_by_status(self, cli_project_with_data):
+        """Test listing loops filtered by status."""
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+        cli_project_with_data.db.register_ralph_loop("TASK-002", "reviewer", 5)
+        cli_project_with_data.db.complete_ralph_loop("TASK-001", "coder", success=True)
+
+        running = cli_project_with_data.db.list_ralph_loops(status="running")
+        completed = cli_project_with_data.db.list_ralph_loops(status="completed")
+
+        assert len(running) == 1
+        assert running[0].task_id == "TASK-002"
+        assert len(completed) == 1
+        assert completed[0].task_id == "TASK-001"
+
+    def test_cancel_ralph_loop(self, cli_project_with_data):
+        """Test cancelling a loop."""
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+        cancelled = cli_project_with_data.db.cancel_ralph_loop("TASK-001", "coder")
+
+        assert cancelled is True
+        loop = cli_project_with_data.db.get_ralph_loop("TASK-001", "coder")
+        assert loop.status == "cancelled"
+
+    def test_complete_ralph_loop_success(self, cli_project_with_data):
+        """Test completing a loop successfully."""
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+        cli_project_with_data.db.complete_ralph_loop("TASK-001", "coder", success=True)
+
+        loop = cli_project_with_data.db.get_ralph_loop("TASK-001", "coder")
+        assert loop.status == "completed"
+
+    def test_complete_ralph_loop_failure(self, cli_project_with_data):
+        """Test completing a loop with failure."""
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+        cli_project_with_data.db.complete_ralph_loop("TASK-001", "coder", success=False)
+
+        loop = cli_project_with_data.db.get_ralph_loop("TASK-001", "coder")
+        assert loop.status == "failed"
+
+    def test_ralph_loop_progress_percent(self, cli_project_with_data):
+        """Test progress percent calculation."""
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+        cli_project_with_data.db.update_ralph_loop("TASK-001", "coder", iteration=5)
+
+        loop = cli_project_with_data.db.get_ralph_loop("TASK-001", "coder")
+        assert loop.progress_percent == 50.0
+
+
+class TestMainWithRalphCommands:
+    """Tests for main entry point with Ralph commands."""
+
+    def test_main_ralph_status(self, cli_project):
+        """Test main with ralph-status command."""
+        with patch("sys.argv", ["specflow", "ralph-status", "--json"]):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                result = main()
+                output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["success"] is True
+
+    def test_main_ralph_cancel(self, cli_project_with_data):
+        """Test main with ralph-cancel command."""
+        # Register a loop first
+        cli_project_with_data.db.register_ralph_loop("TASK-001", "coder", 10)
+
+        with patch("sys.argv", ["specflow", "ralph-cancel", "TASK-001", "--json"]):
+            with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+                result = main()
+                output = json.loads(mock_stdout.getvalue())
+
+        assert result == 0
+        assert output["success"] is True

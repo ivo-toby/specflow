@@ -41,24 +41,66 @@ This enables real-time tracking in the TUI swimlane board.
    - Use the specflow CLI to create tasks:
 
    ```bash
-   # Create each task
+   # Create each task with Ralph Loop completion criteria
    specflow task-create TASK-001 {spec-id} "Setup database schema" \
        --description "Create SQLite schema for user management" \
        --priority 1 \
-       --assignee coder
+       --assignee coder \
+       --outcome "Database schema created and migrations run successfully" \
+       --acceptance-criteria "Schema matches ERD design" \
+       --acceptance-criteria "Migrations are reversible" \
+       --coder-promise "SCHEMA_COMPLETE" \
+       --coder-verification external \
+       --coder-command "python manage.py check"
 
    # Create task with dependencies
    specflow task-create TASK-002 {spec-id} "Implement user model" \
        --description "Create user model and repository" \
        --priority 1 \
        --dependencies "TASK-001" \
-       --assignee coder
+       --assignee coder \
+       --outcome "User model implemented with full CRUD operations" \
+       --acceptance-criteria "All model fields defined" \
+       --acceptance-criteria "Repository has create, read, update, delete methods" \
+       --tester-command "pytest tests/test_user.py"
 
    # Create task depending on multiple tasks
    specflow task-create TASK-003 {spec-id} "Add user API endpoints" \
        --priority 2 \
        --dependencies "TASK-001,TASK-002" \
-       --assignee coder
+       --assignee coder \
+       --outcome "REST API endpoints for user management" \
+       --acceptance-criteria "GET /users returns list" \
+       --acceptance-criteria "POST /users creates user" \
+       --acceptance-criteria "Authentication required"
+   ```
+
+   ### Ralph Loop Completion Options
+
+   Tasks can include completion criteria for Ralph Loop verification:
+
+   - `--outcome "text"` - What "done" means for this task
+   - `--acceptance-criteria "text"` - Repeatable acceptance criteria
+   - `--completion-file path.yaml` - Load criteria from YAML/JSON file
+
+   Per-agent criteria:
+   - `--coder-promise TEXT` - Promise string for coder verification
+   - `--coder-verification {string_match,semantic,external,multi_stage}`
+   - `--coder-command "cmd"` - External command for coder verification
+   - `--tester-command "cmd"` - External command for tester (e.g., pytest)
+   - `--reviewer-verification semantic` - Use AI semantic verification
+
+   Example completion YAML file:
+   ```yaml
+   outcome: "Feature fully implemented"
+   acceptance_criteria:
+     - "All tests pass"
+     - "Code reviewed"
+   coder:
+     promise: "IMPLEMENTATION_COMPLETE"
+     verification_method: "external"
+     verification_config:
+       command: "pytest tests/"
    ```
 
 5. **Update Spec Status**
