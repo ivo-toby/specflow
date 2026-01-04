@@ -3,7 +3,7 @@
 import json
 import sqlite3
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -34,6 +34,15 @@ class TaskStatus(str, Enum):
     DONE = "done"              # QA passed, ready for merge
 
 
+class VerificationMethod(str, Enum):
+    """Methods for verifying task/stage completion in Ralph loops."""
+
+    STRING_MATCH = "string_match"    # Simple promise tag detection
+    SEMANTIC = "semantic"            # AI analyzes if criteria met
+    EXTERNAL = "external"            # Run command, check exit code
+    MULTI_STAGE = "multi_stage"      # Combine multiple methods
+
+
 # Migration mapping from old status values to new
 _TASK_STATUS_MIGRATION = {
     "pending": "todo",
@@ -46,6 +55,91 @@ _TASK_STATUS_MIGRATION = {
     "failed": "todo",
     "blocked": "todo",
 }
+
+
+@dataclass
+class CompletionCriteria:
+    """Completion criteria for a specific agent stage in Ralph loops.
+
+    Defines how to verify that an agent has genuinely completed its work.
+    Used by the Ralph loop to determine when to exit iteration.
+    """
+
+    promise: str  # e.g., "AUTH_IMPLEMENTED" - text to signal completion
+    description: str  # Human-readable success criteria
+    verification_method: VerificationMethod  # How to verify completion
+    verification_config: dict[str, Any] = field(default_factory=dict)
+    max_iterations: int | None = None  # Override default (None = use config)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "promise": self.promise,
+            "description": self.description,
+            "verification_method": self.verification_method.value,
+            "verification_config": self.verification_config,
+            "max_iterations": self.max_iterations,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CompletionCriteria":
+        """Create from dictionary."""
+        return cls(
+            promise=data["promise"],
+            description=data["description"],
+            verification_method=VerificationMethod(data["verification_method"]),
+            verification_config=data.get("verification_config", {}),
+            max_iterations=data.get("max_iterations"),
+        )
+
+
+@dataclass
+class TaskCompletionSpec:
+    """Complete specification of what 'done' means for a task.
+
+    Defines measurable outcomes and per-agent completion requirements.
+    This drives the Ralph loop - without well-defined criteria,
+    the loop either exits too early or runs forever.
+    """
+
+    # Overall task completion (REQUIRED)
+    outcome: str  # Measurable outcome description
+    acceptance_criteria: list[str]  # Checklist of requirements
+
+    # Per-agent completion criteria (OPTIONAL - falls back to defaults)
+    coder: CompletionCriteria | None = None
+    reviewer: CompletionCriteria | None = None
+    tester: CompletionCriteria | None = None
+    qa: CompletionCriteria | None = None
+
+    def get_criteria_for_agent(self, agent_type: str) -> CompletionCriteria | None:
+        """Get completion criteria for a specific agent type."""
+        return getattr(self, agent_type, None)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        result: dict[str, Any] = {
+            "outcome": self.outcome,
+            "acceptance_criteria": self.acceptance_criteria,
+        }
+        for agent in ["coder", "reviewer", "tester", "qa"]:
+            criteria = getattr(self, agent)
+            if criteria:
+                result[agent] = criteria.to_dict()
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TaskCompletionSpec":
+        """Create from dictionary."""
+        agent_criteria: dict[str, CompletionCriteria] = {}
+        for agent in ["coder", "reviewer", "tester", "qa"]:
+            if agent in data and data[agent]:
+                agent_criteria[agent] = CompletionCriteria.from_dict(data[agent])
+        return cls(
+            outcome=data["outcome"],
+            acceptance_criteria=data["acceptance_criteria"],
+            **agent_criteria,
+        )
 
 
 @dataclass
@@ -103,10 +197,11 @@ class Task:
     created_at: datetime
     updated_at: datetime
     metadata: dict[str, Any]
+    completion_spec: TaskCompletionSpec | None = None  # Ralph loop completion criteria
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
-        return {
+        result = {
             "id": self.id,
             "spec_id": self.spec_id,
             "title": self.title,
@@ -121,10 +216,16 @@ class Task:
             "updated_at": self.updated_at.isoformat(),
             "metadata": self.metadata,
         }
+        if self.completion_spec:
+            result["completion_spec"] = self.completion_spec.to_dict()
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Task":
         """Create from dictionary."""
+        completion_spec = None
+        if data.get("completion_spec"):
+            completion_spec = TaskCompletionSpec.from_dict(data["completion_spec"])
         return cls(
             id=data["id"],
             spec_id=data["spec_id"],
@@ -139,6 +240,7 @@ class Task:
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),
             metadata=data.get("metadata", {}),
+            completion_spec=completion_spec,
         )
 
 
@@ -289,6 +391,41 @@ CREATE INDEX IF NOT EXISTS idx_active_agents_slot ON active_agents(slot);
 INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (3, datetime('now'));
 """
 
+MIGRATION_V4_SQL = """
+-- Task completion specifications (Ralph loop support)
+-- Option B: Normalized tables for flexibility and queryability
+CREATE TABLE IF NOT EXISTS task_completion_specs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL UNIQUE,
+    outcome TEXT NOT NULL,
+    acceptance_criteria TEXT NOT NULL,  -- JSON array of strings
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+
+-- Per-agent completion criteria
+CREATE TABLE IF NOT EXISTS task_agent_criteria (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    agent_type TEXT NOT NULL,  -- 'coder', 'reviewer', 'tester', 'qa'
+    promise TEXT NOT NULL,
+    description TEXT NOT NULL,
+    verification_method TEXT NOT NULL,  -- 'string_match', 'semantic', 'external', 'multi_stage'
+    verification_config TEXT,  -- JSON configuration
+    max_iterations INTEGER,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    UNIQUE (task_id, agent_type)
+);
+
+-- Indexes for common queries
+CREATE INDEX IF NOT EXISTS idx_task_completion_specs_task ON task_completion_specs(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_agent_criteria_task ON task_agent_criteria(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_agent_criteria_agent ON task_agent_criteria(agent_type);
+
+-- Update schema version
+INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (4, datetime('now'));
+"""
+
 
 class Database:
     """SQLite database for SpecFlow."""
@@ -335,6 +472,11 @@ class Database:
         # Migration v3: Add active_agents table
         if current_version < 3:
             self.conn.executescript(MIGRATION_V3_SQL)
+            self.conn.commit()
+
+        # Migration v4: Add Ralph loop completion specs tables
+        if current_version < 4:
+            self.conn.executescript(MIGRATION_V4_SQL)
             self.conn.commit()
 
     def close(self) -> None:
@@ -433,7 +575,11 @@ class Database:
 
     # Task operations
     def create_task(self, task: Task) -> None:
-        """Create a new task."""
+        """Create a new task.
+
+        If the task has a completion_spec, it will be saved to the
+        normalized completion spec tables.
+        """
         with self.transaction() as cursor:
             cursor.execute(
                 """
@@ -458,13 +604,29 @@ class Database:
                 ),
             )
 
-    def get_task(self, task_id: str) -> Task | None:
-        """Get a task by ID."""
+        # Save completion spec if present (outside transaction to use helper method)
+        if task.completion_spec:
+            self.save_completion_spec(task.id, task.completion_spec)
+
+    def get_task(self, task_id: str, load_completion_spec: bool = True) -> Task | None:
+        """Get a task by ID.
+
+        Args:
+            task_id: The task ID to retrieve
+            load_completion_spec: If True, also load the completion spec from
+                normalized tables. Set to False for performance if not needed.
+        """
         cursor = self.conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
         row = cursor.fetchone()
         if row is None:
             return None
-        return self._row_to_task(row)
+        task = self._row_to_task(row)
+
+        # Load completion spec if requested
+        if load_completion_spec:
+            task.completion_spec = self.get_completion_spec(task_id)
+
+        return task
 
     def list_tasks(
         self, spec_id: str | None = None, status: TaskStatus | None = None
@@ -561,7 +723,12 @@ class Database:
         return not all(dep in done_ids for dep in task.dependencies)
 
     def update_task(self, task: Task) -> None:
-        """Update an existing task."""
+        """Update an existing task.
+
+        If the task has a completion_spec, it will be updated in the
+        normalized completion spec tables. If completion_spec is None,
+        any existing completion spec will be deleted.
+        """
         with self.transaction() as cursor:
             cursor.execute(
                 """
@@ -584,6 +751,12 @@ class Database:
                     task.id,
                 ),
             )
+
+        # Update completion spec
+        if task.completion_spec:
+            self.save_completion_spec(task.id, task.completion_spec)
+        else:
+            self.delete_completion_spec(task.id)
 
     def delete_task(self, task_id: str) -> None:
         """Delete a task."""
@@ -780,3 +953,167 @@ class Database:
             worktree=row["worktree"],
             started_at=datetime.fromisoformat(row["started_at"]),
         )
+
+    # Completion spec operations (Ralph loop support)
+    def save_completion_spec(self, task_id: str, spec: TaskCompletionSpec) -> None:
+        """Save or update completion spec for a task.
+
+        Uses normalized tables: task_completion_specs for outcome/criteria,
+        task_agent_criteria for per-agent completion requirements.
+        """
+        with self.transaction() as cursor:
+            # Upsert the main completion spec
+            cursor.execute(
+                """
+                INSERT INTO task_completion_specs (task_id, outcome, acceptance_criteria)
+                VALUES (?, ?, ?)
+                ON CONFLICT(task_id) DO UPDATE SET
+                    outcome = excluded.outcome,
+                    acceptance_criteria = excluded.acceptance_criteria
+                """,
+                (task_id, spec.outcome, json.dumps(spec.acceptance_criteria)),
+            )
+
+            # Delete existing agent criteria and re-insert
+            cursor.execute(
+                "DELETE FROM task_agent_criteria WHERE task_id = ?",
+                (task_id,),
+            )
+
+            # Insert per-agent criteria
+            for agent_type in ["coder", "reviewer", "tester", "qa"]:
+                criteria = getattr(spec, agent_type)
+                if criteria:
+                    cursor.execute(
+                        """
+                        INSERT INTO task_agent_criteria
+                            (task_id, agent_type, promise, description,
+                             verification_method, verification_config, max_iterations)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            task_id,
+                            agent_type,
+                            criteria.promise,
+                            criteria.description,
+                            criteria.verification_method.value,
+                            json.dumps(criteria.verification_config),
+                            criteria.max_iterations,
+                        ),
+                    )
+
+    def get_completion_spec(self, task_id: str) -> TaskCompletionSpec | None:
+        """Get completion spec for a task.
+
+        Reconstructs TaskCompletionSpec from normalized tables.
+        """
+        # Get the main spec
+        cursor = self.conn.execute(
+            "SELECT * FROM task_completion_specs WHERE task_id = ?",
+            (task_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+
+        outcome = row["outcome"]
+        acceptance_criteria = json.loads(row["acceptance_criteria"])
+
+        # Get per-agent criteria
+        cursor = self.conn.execute(
+            "SELECT * FROM task_agent_criteria WHERE task_id = ?",
+            (task_id,),
+        )
+        agent_criteria: dict[str, CompletionCriteria] = {}
+        for agent_row in cursor.fetchall():
+            agent_type = agent_row["agent_type"]
+            agent_criteria[agent_type] = CompletionCriteria(
+                promise=agent_row["promise"],
+                description=agent_row["description"],
+                verification_method=VerificationMethod(agent_row["verification_method"]),
+                verification_config=json.loads(agent_row["verification_config"] or "{}"),
+                max_iterations=agent_row["max_iterations"],
+            )
+
+        return TaskCompletionSpec(
+            outcome=outcome,
+            acceptance_criteria=acceptance_criteria,
+            **agent_criteria,
+        )
+
+    def delete_completion_spec(self, task_id: str) -> bool:
+        """Delete completion spec for a task.
+
+        Returns True if a spec was deleted.
+        """
+        with self.transaction() as cursor:
+            # Agent criteria deleted via CASCADE, but be explicit
+            cursor.execute(
+                "DELETE FROM task_agent_criteria WHERE task_id = ?",
+                (task_id,),
+            )
+            cursor.execute(
+                "DELETE FROM task_completion_specs WHERE task_id = ?",
+                (task_id,),
+            )
+            return cursor.rowcount > 0
+
+    def list_tasks_with_completion_specs(
+        self, spec_id: str | None = None
+    ) -> list[Task]:
+        """List tasks with their completion specs loaded.
+
+        More efficient than calling get_completion_spec for each task.
+        """
+        tasks = self.list_tasks(spec_id=spec_id)
+
+        # Batch load all completion specs
+        task_ids = [t.id for t in tasks]
+        if not task_ids:
+            return tasks
+
+        placeholders = ",".join("?" * len(task_ids))
+
+        # Load completion specs
+        cursor = self.conn.execute(
+            f"SELECT * FROM task_completion_specs WHERE task_id IN ({placeholders})",
+            task_ids,
+        )
+        specs_by_task: dict[str, dict[str, Any]] = {}
+        for row in cursor.fetchall():
+            specs_by_task[row["task_id"]] = {
+                "outcome": row["outcome"],
+                "acceptance_criteria": json.loads(row["acceptance_criteria"]),
+            }
+
+        # Load agent criteria
+        cursor = self.conn.execute(
+            f"SELECT * FROM task_agent_criteria WHERE task_id IN ({placeholders})",
+            task_ids,
+        )
+        for row in cursor.fetchall():
+            task_id = row["task_id"]
+            if task_id in specs_by_task:
+                agent_type = row["agent_type"]
+                specs_by_task[task_id][agent_type] = CompletionCriteria(
+                    promise=row["promise"],
+                    description=row["description"],
+                    verification_method=VerificationMethod(row["verification_method"]),
+                    verification_config=json.loads(row["verification_config"] or "{}"),
+                    max_iterations=row["max_iterations"],
+                )
+
+        # Attach specs to tasks
+        for task in tasks:
+            if task.id in specs_by_task:
+                spec_data = specs_by_task[task.id]
+                task.completion_spec = TaskCompletionSpec(
+                    outcome=spec_data["outcome"],
+                    acceptance_criteria=spec_data["acceptance_criteria"],
+                    coder=spec_data.get("coder"),
+                    reviewer=spec_data.get("reviewer"),
+                    tester=spec_data.get("tester"),
+                    qa=spec_data.get("qa"),
+                )
+
+        return tasks

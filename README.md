@@ -18,7 +18,7 @@
 
 ## What is SpecFlow?
 
-SpecFlow transforms how you build software. Feed it a business requirements document, and watch as AI agents autonomously architect, implement, test, and review your code — all while you monitor progress in a beautiful terminal UI.
+SpecFlow transforms how you build software. Feed it a business requirements document, and watch as AI agents autonomously architect, implement, test, and review your code — all while you monitor progress in a beautiful terminal UI. AutoClaude meets SpecKit.
 
 **The problem:** Building software from requirements is a manual, error-prone process that requires constant human intervention at every stage.
 
@@ -57,24 +57,28 @@ You stay in control through human approval gates during specification, then let 
 ## Features
 
 ### Document Ingestion & Specification
+
 - **Interactive BRD/PRD Creation** — Guided workflows to capture business and product requirements
 - **Document Ingestion** — Import existing requirement documents
 - **AI-Assisted Specification** — Generate functional specs with clarification workflow
 - **Human Approval Gates** — You control when specs are ready for implementation
 
 ### Multi-Agent Orchestration
+
 - **5 Specialized Agents** — Architect, Coder, Reviewer, Tester, QA
 - **6 Parallel Execution Slots** — Run multiple agents simultaneously
 - **Database-Driven Task Management** — Real-time status tracking
 - **Automatic Agent Registration** — TUI shows which agent is working on what
 
 ### Git Integration
+
 - **Isolated Worktrees** — Each task runs in its own git worktree
 - **Automatic Branching** — `task/{task-id}` branches for every task
 - **3-Tier Merge Strategy** — Auto-merge → AI conflict resolution → AI file regeneration
 - **Clean Merges** — Automatic cleanup of worktrees and branches
 
 ### Developer Experience
+
 - **Interactive TUI** — Beautiful terminal UI for monitoring progress
 - **Swimlane Board** — Kanban-style task tracking (Todo → Implementing → Testing → Reviewing → Done)
 - **Dependency Graph** — Visualize task dependencies
@@ -82,28 +86,40 @@ You stay in control through human approval gates during specification, then let 
 - **CI/CD Ready** — Headless mode for automation pipelines
 
 ### Persistence & Memory
+
 - **SQLite Database** — Fast local storage for specs, tasks, and agents
 - **Cross-Session Memory** — Entity extraction and context persistence
 - **Memory Injection** — Relevant context automatically included in agent prompts
 - **JSONL Sync** — Git-friendly database synchronization
 
 ### Intelligent Task Management
+
 - **Agent-Created Follow-up Tasks** — Agents create tasks for TODOs, tech debt, and edge cases
 - **Task Categories** — PLACEHOLDER, TECH-DEBT, REFACTOR, TEST-GAP, EDGE-CASE, DOC
 - **Parent Task Linking** — Follow-up tasks link to their source task
 - **Visual Indicators** — TUI shows colored badges for follow-up task types
 
 ### Claude Code Hooks
+
 - **Stop Hook** — Runs when Claude finishes, validates task completion
 - **Configurable Checks** — Require commits, test runs, or custom conditions
 - **Auto Documentation** — Trigger docs generation on task completion
 - **Loop Prevention** — Built-in protection against infinite hook loops
 
 ### Documentation Generation
+
 - **Architectural Docs** — Auto-generate ARCHITECTURE.md with design decisions
 - **Component Docs** — Detailed documentation for each major module
 - **API Reference** — Endpoint/function documentation if applicable
 - **Incremental Updates** — Update existing docs instead of recreating
+
+### Ralph Loop (Self-Assessment)
+
+- **Task Completion Criteria** — Define measurable outcomes for every task
+- **Per-Agent Verification** — Specify completion requirements for each agent stage
+- **4 Verification Methods** — String match, semantic analysis, external commands, multi-stage
+- **Iterative Refinement** — Agents continue until genuinely complete
+- **Acceptance Criteria** — Checklist of requirements that must be satisfied
 
 ## Installation
 
@@ -137,6 +153,7 @@ specflow init
 ```
 
 This creates:
+
 - `.specflow/` — Configuration and database
 - `specs/` — Specification documents
 - `.claude/` — Agent definitions, skills, and commands
@@ -268,6 +285,7 @@ specflow sync-status                  # Show sync status and statistics
 ```
 
 JSONL sync enables git-based collaboration:
+
 1. Changes are automatically recorded to `specs.jsonl`
 2. Commit and push the JSONL file
 3. Collaborators pull and changes are imported on next `specflow` run
@@ -279,6 +297,7 @@ specflow generate-docs [--spec ID] [--output DIR] [--model MODEL]
 ```
 
 Generate comprehensive developer documentation for your codebase. The docs-generator agent analyzes your code and creates:
+
 - `docs/ARCHITECTURE.md` - High-level architecture overview and design decisions
 - `docs/components/` - Detailed documentation for each major component
 - API reference documentation (if applicable)
@@ -333,12 +352,12 @@ specflow execute --spec my-feature --json
 
 Each task passes through 4 agent stages with automatic retry:
 
-| Stage | Agent | Max Retries | Purpose |
-|-------|-------|-------------|---------|
-| Implementation | Coder | 3 | Write code, commit changes |
-| Code Review | Reviewer | 2 | Check quality, find bugs |
-| Testing | Tester | 2 | Write and run tests |
-| QA Validation | QA | 10 | Final acceptance check |
+| Stage          | Agent    | Max Retries | Purpose                    |
+| -------------- | -------- | ----------- | -------------------------- |
+| Implementation | Coder    | 3           | Write code, commit changes |
+| Code Review    | Reviewer | 2           | Check quality, find bugs   |
+| Testing        | Tester   | 2           | Write and run tests        |
+| QA Validation  | QA       | 10          | Final acceptance check     |
 
 If a stage fails after max retries, the task resets to `todo` status with failure metadata.
 
@@ -485,6 +504,89 @@ specflow list-tasks --spec auth-feature --json | jq '.tasks[] | select(.metadata
 # [TEST] - Magenta badge for test gaps
 ```
 
+### Example 7: Task Completion Criteria (Ralph Loop)
+
+SpecFlow supports task-level completion criteria using the "Ralph Loop" methodology. This ensures agents truly complete their work before moving on.
+
+```python
+from specflow.core.database import (
+    Task, TaskCompletionSpec, CompletionCriteria, VerificationMethod
+)
+
+# Define completion criteria for a task
+completion_spec = TaskCompletionSpec(
+    # Required: What "done" looks like for this task
+    outcome="JWT authentication fully implemented and tested",
+    acceptance_criteria=[
+        "JWT middleware validates tokens on all protected routes",
+        "Login endpoint returns valid JWT tokens",
+        "Invalid/expired tokens return 401 Unauthorized",
+        "Tests pass with >80% coverage",
+    ],
+
+    # Optional: Per-agent completion criteria
+    coder=CompletionCriteria(
+        promise="AUTH_IMPLEMENTED",
+        description="Authentication code complete",
+        verification_method=VerificationMethod.EXTERNAL,
+        verification_config={
+            "command": "test -f src/auth/middleware.py && test -f src/auth/jwt.py",
+            "success_exit_code": 0,
+        },
+        max_iterations=15,
+    ),
+    tester=CompletionCriteria(
+        promise="TESTS_PASS",
+        description="All tests pass with coverage",
+        verification_method=VerificationMethod.EXTERNAL,
+        verification_config={
+            "command": "pytest tests/test_auth.py --cov=src/auth --cov-fail-under=80",
+            "success_exit_code": 0,
+            "output_not_contains": "FAILED",
+        },
+    ),
+    qa=CompletionCriteria(
+        promise="QA_PASSED",
+        description="Full QA validation",
+        verification_method=VerificationMethod.MULTI_STAGE,
+        verification_config={
+            "require_all": True,
+            "stages": [
+                {"name": "tests", "method": "external", "config": {"command": "pytest"}},
+                {"name": "lint", "method": "external", "config": {"command": "ruff check src/"}},
+            ],
+        },
+    ),
+)
+
+# Create task with completion spec
+task = Task(
+    id="TASK-001",
+    spec_id="auth-feature",
+    title="Implement JWT authentication",
+    # ... other fields ...
+    completion_spec=completion_spec,
+)
+```
+
+**Verification Methods:**
+
+| Method         | Use Case                  | Config Options                            |
+| -------------- | ------------------------- | ----------------------------------------- |
+| `STRING_MATCH` | Simple promise detection  | None needed                               |
+| `SEMANTIC`     | AI-powered criteria check | `check_for`, `negative_patterns`          |
+| `EXTERNAL`     | Run command, check result | `command`, `success_exit_code`, `timeout` |
+| `MULTI_STAGE`  | Combine multiple methods  | `stages`, `require_all`                   |
+
+**How it works:**
+
+1. Agent completes its work and outputs `<promise>PROMISE_TEXT</promise>`
+2. Verification method runs to validate the promise is genuine
+3. If verification fails, the agent continues iterating
+4. Loop exits when verified or max iterations reached
+
+For detailed specification, see [docs/RALPH_SPEC.md](docs/RALPH_SPEC.md).
+
 ## Architecture
 
 ### Workflow
@@ -549,12 +651,12 @@ project:
   name: my-project
 
 agents:
-  max_parallel: 6           # Max concurrent agent executions
-  default_model: sonnet     # Fallback model if not specified per-agent
+  max_parallel: 6 # Max concurrent agent executions
+  default_model: sonnet # Fallback model if not specified per-agent
   architect:
-    model: opus             # Use Opus for architecture decisions
+    model: opus # Use Opus for architecture decisions
   coder:
-    model: sonnet           # Use Sonnet for implementation
+    model: sonnet # Use Sonnet for implementation
   reviewer:
     model: sonnet
   tester:
@@ -562,45 +664,53 @@ agents:
   qa:
     model: sonnet
   docs_generator:
-    model: sonnet           # Model for documentation generation
+    model: sonnet # Model for documentation generation
 
 execution:
-  max_iterations: 10        # Max retries across all pipeline stages
-  timeout_minutes: 30       # Timeout per agent execution (in minutes)
-  worktree_dir: .worktrees  # Directory for task worktrees
+  max_iterations: 10 # Max retries across all pipeline stages
+  timeout_minutes: 30 # Timeout per agent execution (in minutes)
+  worktree_dir: .worktrees # Directory for task worktrees
 
 database:
   path: .specflow/specflow.db
-  sync_jsonl: true          # Enable JSONL sync for git collaboration
+  sync_jsonl: true # Enable JSONL sync for git collaboration
 
 hooks:
   stop:
-    enabled: true           # Enable stop hook for task completion checks
-    require_commit: false   # Block if uncommitted changes exist
-    require_tests: false    # Block if tests weren't run
+    enabled: true # Enable stop hook for task completion checks
+    require_commit: false # Block if uncommitted changes exist
+    require_tests: false # Block if tests weren't run
 
 docs:
-  enabled: false            # Enable automatic documentation generation
-  generate_on_complete: false  # Generate docs when tasks complete
-  output_dir: docs          # Output directory for generated docs
+  enabled: false # Enable automatic documentation generation
+  generate_on_complete: false # Generate docs when tasks complete
+  output_dir: docs # Output directory for generated docs
+
+ralph:
+  enabled: true # Enable Ralph loop self-assessment
+  default_max_iterations: 10 # Default max iterations per agent stage
+  default_verification: string_match # Default verification method
 ```
 
 ### Configuration Options
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `agents.max_parallel` | 6 | Maximum concurrent agent executions |
-| `agents.default_model` | sonnet | Default model when agent-specific not set |
-| `agents.<type>.model` | - | Model for specific agent (opus/sonnet/haiku) |
-| `execution.max_iterations` | 10 | Max retries across pipeline stages |
-| `execution.timeout_minutes` | 10 | Timeout per agent execution |
-| `database.sync_jsonl` | true | Auto-sync changes to JSONL for git |
-| `hooks.stop.enabled` | true | Enable stop hook for completion checks |
-| `hooks.stop.require_commit` | false | Block if uncommitted changes exist |
-| `hooks.stop.require_tests` | false | Block if tests weren't run |
-| `docs.enabled` | false | Enable documentation generation feature |
-| `docs.generate_on_complete` | false | Auto-generate docs on task completion |
-| `docs.output_dir` | docs | Output directory for generated docs |
+| Setting                        | Default      | Description                                  |
+| ------------------------------ | ------------ | -------------------------------------------- |
+| `agents.max_parallel`          | 6            | Maximum concurrent agent executions          |
+| `agents.default_model`         | sonnet       | Default model when agent-specific not set    |
+| `agents.<type>.model`          | -            | Model for specific agent (opus/sonnet/haiku) |
+| `execution.max_iterations`     | 10           | Max retries across pipeline stages           |
+| `execution.timeout_minutes`    | 10           | Timeout per agent execution                  |
+| `database.sync_jsonl`          | true         | Auto-sync changes to JSONL for git           |
+| `hooks.stop.enabled`           | true         | Enable stop hook for completion checks       |
+| `hooks.stop.require_commit`    | false        | Block if uncommitted changes exist           |
+| `hooks.stop.require_tests`     | false        | Block if tests weren't run                   |
+| `docs.enabled`                 | false        | Enable documentation generation feature      |
+| `docs.generate_on_complete`    | false        | Auto-generate docs on task completion        |
+| `docs.output_dir`              | docs         | Output directory for generated docs          |
+| `ralph.enabled`                | true         | Enable Ralph loop self-assessment            |
+| `ralph.default_max_iterations` | 10           | Default max iterations per agent stage       |
+| `ralph.default_verification`   | string_match | Default verification method                  |
 
 ## Development
 
@@ -655,3 +765,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 - Built for [Claude Code](https://claude.ai/code)
 - Uses [Textual](https://github.com/Textualize/textual) for TUI
 - Inspired by spec-driven development practices
+- Ralph Loop methodology based on [Geoffrey Huntley's work](https://ghuntley.com/ralph/)
