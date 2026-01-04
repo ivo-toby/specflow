@@ -84,9 +84,10 @@ class SpecEditor(Container):
 
             with TabPane("Tasks", id="tab-tasks"):
                 yield TextArea(
-                    "No tasks.md available",
+                    "# Tasks\n\nNo specification selected.",
                     language="markdown",
                     theme="monokai",
+                    read_only=True,
                     id="editor-tasks"
                 )
 
@@ -205,7 +206,7 @@ class SpecEditor(Container):
         elif tab_id == "tab-plan":
             self._load_file_to_tab(self.spec_dir / "plan.md", tab_id)
         elif tab_id == "tab-tasks":
-            self._load_file_to_tab(self.spec_dir / "tasks.md", tab_id)
+            self._load_tasks_from_database(tab_id)
         elif tab_id == "tab-research":
             self._load_file_to_tab(self.spec_dir / "research.md", tab_id)
         elif tab_id == "tab-answers":
@@ -297,6 +298,91 @@ class SpecEditor(Container):
         else:
             self._update_tab(tab_id, f"File not found: {file_path.name}")
 
+    def _load_tasks_from_database(self, tab_id: str) -> None:
+        """Load tasks from the database and format as markdown."""
+        app = self.app
+        if not hasattr(app, "project") or app.project is None or not self.current_spec_id:
+            self._update_tab(tab_id, "# Tasks\n\nNo project loaded.")
+            return
+
+        tasks = app.project.db.list_tasks(spec_id=self.current_spec_id)
+
+        if not tasks:
+            self._update_tab(tab_id, f"# Tasks\n\nNo tasks defined for spec: {self.current_spec_id}")
+            return
+
+        # Group tasks by status
+        status_groups = {
+            "todo": [],
+            "implementing": [],
+            "testing": [],
+            "reviewing": [],
+            "done": [],
+        }
+
+        for task in tasks:
+            status_key = task.status.value if hasattr(task.status, 'value') else str(task.status)
+            if status_key in status_groups:
+                status_groups[status_key].append(task)
+            else:
+                status_groups["todo"].append(task)
+
+        # Build markdown content
+        lines = [f"# Tasks for {self.current_spec_id}", ""]
+
+        # Summary
+        total = len(tasks)
+        done_count = len(status_groups["done"])
+        lines.append(f"**Total:** {total} tasks | **Completed:** {done_count} ({done_count/total*100:.0f}% done)" if total > 0 else "**Total:** 0 tasks")
+        lines.append("")
+
+        # Status emoji mapping
+        status_emoji = {
+            "todo": "📋",
+            "implementing": "🔨",
+            "testing": "🧪",
+            "reviewing": "🔍",
+            "done": "✅",
+        }
+
+        # Display tasks by status (active first, then done)
+        status_order = ["implementing", "testing", "reviewing", "todo", "done"]
+
+        for status in status_order:
+            task_list = status_groups[status]
+            if not task_list:
+                continue
+
+            emoji = status_emoji.get(status, "📌")
+            status_title = status.replace("_", " ").title()
+            lines.append(f"## {emoji} {status_title} ({len(task_list)})")
+            lines.append("")
+
+            for task in sorted(task_list, key=lambda t: t.priority):
+                # Priority indicator
+                priority_marker = "🔴" if task.priority == 1 else "🟡" if task.priority == 2 else "🟢"
+
+                lines.append(f"### {priority_marker} {task.id}: {task.title}")
+                lines.append("")
+
+                if task.description:
+                    lines.append(task.description)
+                    lines.append("")
+
+                # Show metadata for follow-up tasks
+                if task.metadata:
+                    if task.metadata.get("is_followup"):
+                        category = task.metadata.get("category", "unknown")
+                        parent = task.metadata.get("parent_task", "N/A")
+                        lines.append(f"*Follow-up task ({category}) from {parent}*")
+                        lines.append("")
+
+                lines.append("---")
+                lines.append("")
+
+        content = "\n".join(lines)
+        self._update_tab(tab_id, content)
+
     def _update_tab(self, tab_id: str, content: str) -> None:
         """Update tab content."""
         try:
@@ -330,13 +416,12 @@ class SpecEditor(Container):
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Track changes in text areas."""
-        # Map editor IDs back to tab IDs
+        # Map editor IDs back to tab IDs (excluding readonly tabs like tasks)
         tab_map = {
             "editor-brd": "tab-brd",
             "editor-prd": "tab-prd",
             "editor-spec": "tab-spec",
             "editor-plan": "tab-plan",
-            "editor-tasks": "tab-tasks",
             "editor-research": "tab-research",
             "editor-answers": "tab-answers",
         }
@@ -387,8 +472,8 @@ class SpecEditor(Container):
             tabbed = self.query_one(TabbedContent)
             active_tab = tabbed.active
 
-            # Skip overview - it's generated, not editable
-            if active_tab == "tab-overview":
+            # Skip overview and tasks - they're generated/readonly, not editable
+            if active_tab in ("tab-overview", "tab-tasks"):
                 return False
 
             # Handle constitution separately (project-level)
@@ -401,7 +486,6 @@ class SpecEditor(Container):
                 "tab-prd": "prd.md",
                 "tab-spec": "spec.md",
                 "tab-plan": "plan.md",
-                "tab-tasks": "tasks.md",
                 "tab-research": "research.md",
             }
 
@@ -430,7 +514,6 @@ class SpecEditor(Container):
                 "tab-prd": "editor-prd",
                 "tab-spec": "editor-spec",
                 "tab-plan": "editor-plan",
-                "tab-tasks": "editor-tasks",
                 "tab-research": "editor-research",
                 "tab-answers": "editor-answers",
             }
