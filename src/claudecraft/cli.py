@@ -820,10 +820,12 @@ def cmd_execute(
         # Import orchestration modules
         from claudecraft.orchestration.agent_pool import AgentPool
         from claudecraft.orchestration.execution import ExecutionPipeline
+        from claudecraft.orchestration.merge import MergeOrchestrator
         from claudecraft.orchestration.worktree import WorktreeManager
 
         # Initialize components
         worktree_mgr = WorktreeManager(project.root)
+        merge_orchestrator = MergeOrchestrator(project.root)
         agent_pool = AgentPool(max_agents=max_parallel)
         # Use timeout from config (converted from minutes to seconds)
         timeout_seconds = project.config.timeout_minutes * 60
@@ -833,6 +835,7 @@ def cmd_execute(
         results = []
         results_lock = threading.Lock()
         print_lock = threading.Lock()
+        merge_lock = threading.Lock()  # Serialize merge operations to avoid conflicts
 
         def execute_single_task(task):
             """Execute a single task (runs in thread)."""
@@ -860,6 +863,36 @@ def cmd_execute(
 
                 task_result["success"] = success
                 task_result["final_status"] = final_status
+
+                # After successful completion, merge branch and cleanup worktree
+                if success:
+                    # Use merge_lock to serialize merge operations (avoids git conflicts)
+                    with merge_lock:
+                        try:
+                            # Merge task branch to main
+                            merge_success, merge_msg = merge_orchestrator.merge_task(task.id, "main")
+                            task_result["merged"] = merge_success
+                            task_result["merge_message"] = merge_msg
+
+                            if merge_success:
+                                # Cleanup worktree and branch
+                                worktree_mgr.remove_worktree(task.id, force=True)
+                                merge_orchestrator.cleanup_branch(task.id)
+                                task_result["cleaned_up"] = True
+
+                                if not json_output:
+                                    with print_lock:
+                                        print(f"[MERGE] Task {task.id}: Merged and cleaned up")
+                            else:
+                                task_result["cleaned_up"] = False
+                                if not json_output:
+                                    with print_lock:
+                                        print(f"[WARN] Task {task.id}: Merge failed - {merge_msg}")
+                        except Exception as merge_err:
+                            task_result["merge_error"] = str(merge_err)
+                            if not json_output:
+                                with print_lock:
+                                    print(f"[WARN] Task {task.id}: Merge/cleanup error - {merge_err}")
 
                 if not json_output:
                     with print_lock:
